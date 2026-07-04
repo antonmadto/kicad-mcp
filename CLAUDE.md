@@ -3,6 +3,7 @@
 This file is the durable operating agreement for building `kicad-mcp`. Read it every session. It is a distilled rulebook; the full spec is in `PLAN.md`. When the two conflict, `PLAN.md` wins and you should flag the conflict.
 
 ## Read first, every session
+0. `HANDOFF.md` — **START HERE.** The current goal, what's done, and what to do next (making the MCP genuinely usable on real boards). Session-to-session baton.
 1. `PLAN.md` — master execution plan (architecture, pinned stack, repo layout §4, phases §8).
 2. `docs/rules/hartley-rules.md`, `docs/rules/philslab-rules.md` — the rule catalogs the review engine encodes.
 3. `docs/rules/CHANGES.md` — corrections verified against the source videos; severity and sourcing fixes you MUST honor.
