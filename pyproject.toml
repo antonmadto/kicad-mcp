@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kicad-mcp"
+version = "0.1.0"
+description = "MCP server for creating, reviewing, and exporting KiCad designs, with a Hartley/Phil's Lab design-review engine."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "kicad-mcp contributors" }]
+keywords = ["kicad", "mcp", "pcb", "eda", "design-review", "claude"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+
+# Pinned stack (PLAN.md §3 / CLAUDE.md). Do NOT add SWIG pcbnew or kiutils.
+dependencies = [
+    "mcp>=1.9",
+    "kicad-python==0.7.1",
+    "sexpdata>=1.0.2",
+    "kicad-skip>=0.2.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+kicad-mcp = "kicad_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/kicad-mcp/kicad-mcp"
+Issues = "https://github.com/kicad-mcp/kicad-mcp/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kicad_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S", "W"]
+# S101 (assert) is fine in tests; keep asserts out of library code except guards.
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+# Fixture generators build KiCad s-expressions from long inline string literals.
+"tests/fixtures/**" = ["E501", "S101"]
+# Rule modules are prose-heavy: one-line physics rationales/citations read better
+# unwrapped than split across lines.
+"kicad_mcp/review_engine/rules/**" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "requires_kicad: needs a kicad-cli executable installed (auto-skipped otherwise)",
+    "requires_kicad_gui: needs a running KiCad GUI with the IPC API enabled",
+]

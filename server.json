@@ -1,0 +1,35 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.kicad-mcp/kicad-mcp",
+  "description": "Create, review, and export KiCad 9 designs — with a Hartley/Phil's Lab design-review engine.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/kicad-mcp/kicad-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "kicad-mcp",
+      "version": "0.1.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "KICAD_MCP_SEARCH_PATHS",
+          "description": "os.pathsep-separated KiCad project roots; also the file-access confinement boundary.",
+          "isRequired": false
+        },
+        {
+          "name": "KICAD_MCP_CLI_PATH",
+          "description": "Override path to the kicad-cli executable (auto-discovered per platform otherwise).",
+          "isRequired": false
+        },
+        {
+          "name": "KICAD_MCP_ALLOW_SCHEMATIC_WRITE",
+          "description": "Set to 1 to enable experimental schematic writes.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

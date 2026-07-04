@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# KiCad transient/backup artifacts
+*.kicad_pcb-bak
+*.kicad_sch-bak
+*-backups/
+fp-info-cache
+~*.lck
+
+# OS
+.DS_Store
+Thumbs.db
+*.kicad_prl
+
+# kicad-mcp review/DRC history
+.kicad-mcp/
