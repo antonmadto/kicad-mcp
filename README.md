@@ -1,5 +1,9 @@
 # kicad-mcp
 
+[![CI](https://github.com/antonmadto/kicad-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/antonmadto/kicad-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 An MCP server that lets Claude **analyze, review, and export** KiCad 9 designs —
 and (with a running KiCad) edit boards live. Its differentiator is a built-in
 **design-review engine** encoding the teachings of Rick Hartley and Phil Salmony
