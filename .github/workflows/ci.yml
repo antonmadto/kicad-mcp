@@ -27,8 +27,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Create venv and install (editable + dev)
+        # --clear: setup-uv may have already created .venv for the pinned Python.
         run: |
-          uv venv
+          uv venv --clear
           uv pip install -e ".[dev]"
 
       - name: Lint (ruff check)
