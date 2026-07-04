@@ -27,7 +27,7 @@ def test_macos_default_path():
         None,
         platform="darwin",
         which=lambda _n: None,
-        exists=lambda p: str(p) == MAC_DEFAULT,
+        exists=lambda p: Path(p) == Path(MAC_DEFAULT),
     )
     assert got == Path(MAC_DEFAULT)
 
@@ -37,7 +37,7 @@ def test_windows_default_path():
         None,
         platform="win32",
         which=lambda _n: None,
-        exists=lambda p: str(p) == WIN_DEFAULT,
+        exists=lambda p: Path(p) == Path(WIN_DEFAULT),
     )
     assert got == Path(WIN_DEFAULT)
 

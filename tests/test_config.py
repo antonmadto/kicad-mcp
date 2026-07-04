@@ -62,5 +62,6 @@ def test_describe_is_json_serializable():
     cfg = Config.from_env({"KICAD_MCP_CLI_PATH": "/opt/kicad-cli"})
     payload = cfg.describe()
     json.dumps(payload)  # must not raise
-    assert payload["cli_path"] == "/opt/kicad-cli"
+    # describe() stringifies with the platform separator; compare OS-agnostically.
+    assert payload["cli_path"] == str(Path("/opt/kicad-cli"))
     assert payload["allow_schematic_write"] is False
