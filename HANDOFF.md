@@ -49,15 +49,16 @@ board editing) — selected at runtime with graceful degradation.
 
 ## 3. What's next — "make it really working" (priority order)
 
-**① Connect it to the user's Claude and confirm the tools fire.**
-The user must run this themselves (the `claude` CLI is NOT reachable from the
-Bash sandbox — different PATH):
-```bash
-claude mcp add kicad --env KICAD_MCP_SEARCH_PATHS="<dir with their .kicad_pro files>" \
-  -- "/Users/antonmadto/Documents/Claude/Projects/KiCAD MCP/.venv/bin/kicad-mcp"
-```
-Then restart Claude Code / `/mcp`. First tool to call: **`get_server_status`**.
-Next session: verify it connects and returns the backend/capability list.
+**① Connect it to the user's Claude — DONE, pending a restart.**
+The MCP server is already registered **globally** in `~/.claude.json` under
+`mcpServers.kicad` (the `claude` CLI isn't on PATH, so it was added by editing that
+file directly; backup at `~/.claude.json.kicad-mcp.bak`). It points at
+`.venv/bin/kicad-mcp` with `KICAD_MCP_SEARCH_PATHS` = `~/Documents/KiCad` +
+the repo's `tests/fixtures` (so there's a sample board to try immediately).
+**It was verified working end-to-end over a real MCP stdio handshake** (init →
+list_tools → `get_server_status` returned KiCad 9.0.8 → `review_design` returned 5
+findings). The user just needs to **restart Claude Code** to pick it up. First tool
+to call: **`get_server_status`**.
 
 **② Run it on the user's REAL board (biggest value).**
 So far it's only been exercised on synthetic fixtures + the tiny 2-resistor
@@ -103,8 +104,21 @@ when tools are called for real (vs. the direct-impl calls used in tests).
 - **Repo:** `/Users/antonmadto/Documents/Claude/Projects/KiCAD MCP` — git on
   `main`, remote `origin` → github.com/antonmadto/kicad-mcp, `gh` authed as
   `antonmadto`.
-- **venv:** `.venv/` (Python 3.13) with all deps + the package installed editable.
-  Run tests: `./.venv/bin/python -m pytest -q`. Lint: `./.venv/bin/ruff check .`.
+- **venv:** `.venv/` (Python 3.13). Run tests: `./.venv/bin/python -m pytest -q`
+  (from the repo root — imports resolve to source). Lint: `./.venv/bin/ruff check .`.
+- **⚠ Server install gotcha (important):** the package is installed **non-editable**
+  (`pip install dist/kicad_mcp-0.1.0-py3-none-any.whl`), NOT `-e`. The hatchling
+  editable `.pth` was unreliable here (its path wasn't added to `sys.path` when the
+  server was spawned as a subprocess — likely the space in "KiCAD MCP"), so
+  `import kicad_mcp` failed whenever Claude Code launched the server from another
+  directory. A normal wheel install (copied into site-packages) fixed it — verified
+  over a real MCP handshake. **Consequence:** after you change source code, the
+  running server won't see it until you rebuild + reinstall:
+  `./.venv/bin/python -m build && ./.venv/bin/pip install --force-reinstall --no-deps dist/kicad_mcp-*.whl`
+  (tests still read source, so they reflect changes immediately).
+- **MCP registration:** `~/.claude.json` → `mcpServers.kicad` (global). Edit that
+  file (or the future `claude mcp` CLI) to change env/paths. Restart Claude Code to
+  apply.
 - **KiCad:** 9.0.8 at `/Applications/KiCad/KiCad.app`. Its IPC API was **enabled**
   (`~/Library/Preferences/kicad/9.0/kicad_common.json`, `api.enable_server=true`;
   backup `kicad_common.json.kicad-mcp.bak`). Leave on for IPC work.
