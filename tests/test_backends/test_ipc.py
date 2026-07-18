@@ -240,7 +240,17 @@ class _AlwaysBusyClient:
 
 class _DeadClient:
     def ping(self):
-        raise OSError("broken pipe")  # transport-layer loss (KiCad closed/crashed)
+        # A blocking fill stalls KiCad's event loop, so the ping's recv() times out
+        # and kipy raises a transport error. This is the signature of a healthy long
+        # fill, NOT proof of a crash — refill_zones must keep polling to the deadline.
+        raise OSError("broken pipe")
+
+
+class _NonBusyApiFailClient:
+    """Raises a genuine (non-AS_BUSY) ApiError — a real refill failure to surface."""
+
+    def ping(self):
+        raise ipc_module._kerr.ApiError("refill rejected", code=99)
 
 
 def test_refill_zones_polls_until_done(ipc, monkeypatch):
@@ -264,14 +274,27 @@ def test_refill_zones_times_out_when_never_ready(ipc, monkeypatch):
         ipc.refill_zones(timeout_s=0.01)
 
 
-def test_refill_zones_fails_fast_on_lost_connection(ipc, monkeypatch):
-    # kipy's own loop swallows IOError and retries forever; ours must fail fast so
-    # a KiCad crash mid-fill cannot wedge the single-threaded MCP event loop.
+def test_refill_zones_transport_error_polls_to_deadline(ipc, monkeypatch):
+    # Regression: a transport timeout during a fill (blocked event loop) must NOT be
+    # mis-reported as "KiCad crashed". It is treated like AS_BUSY — the wall-clock
+    # deadline is the only backstop — so a dead/stalled client surfaces at the
+    # deadline (a non-fatal "did not complete"), not instantly as a fatal abort.
     monkeypatch.setattr("kicad_mcp.backends.ipc.time.sleep", lambda _s: None)
     board = _FakeRefillBoard()
     monkeypatch.setattr(ipc, "get_board", lambda: board)
     ipc._kicad = _DeadClient()
-    with pytest.raises(BackendError, match="Lost connection"):
+    with pytest.raises(BackendError, match="did not complete within"):
+        ipc.refill_zones(timeout_s=0.01)
+
+
+def test_refill_zones_raises_on_non_busy_api_error(ipc, monkeypatch):
+    # A genuine (non-AS_BUSY) ApiError is a real refill failure — surface it at once,
+    # do not keep polling to the deadline.
+    monkeypatch.setattr("kicad_mcp.backends.ipc.time.sleep", lambda _s: None)
+    board = _FakeRefillBoard()
+    monkeypatch.setattr(ipc, "get_board", lambda: board)
+    ipc._kicad = _NonBusyApiFailClient()
+    with pytest.raises(BackendError, match="Zone refill failed"):
         ipc.refill_zones(timeout_s=5.0)
 
 

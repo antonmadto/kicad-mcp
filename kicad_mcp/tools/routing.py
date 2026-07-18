@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from kicad_mcp.backends import Capability, IpcBackend
@@ -27,10 +28,17 @@ def coerce_points(points_mm: list, item: str = "point") -> list[tuple[float, flo
     """
     pts: list[tuple[float, float]] = []
     for i, p in enumerate(points_mm):
+        # A str/bytes element is subscriptable, so '12' would silently coerce to
+        # (1.0, 2.0) — a wrong coordinate, not an error. Reject it explicitly.
+        if isinstance(p, (str, bytes)):
+            raise ValueError(f"{item} {i} must be [x_mm, y_mm], got {p!r}")
         try:
             x, y = float(p[0]), float(p[1])
         except (TypeError, KeyError, IndexError, ValueError):
             raise ValueError(f"{item} {i} must be [x_mm, y_mm], got {p!r}") from None
+        # NaN/Inf survive float() and reach the IPC layer as garbage nanometres.
+        if not (math.isfinite(x) and math.isfinite(y)):
+            raise ValueError(f"{item} {i} coordinates must be finite numbers, got {p!r}")
         pts.append((x, y))
     return pts
 

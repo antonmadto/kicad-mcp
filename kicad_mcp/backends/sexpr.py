@@ -132,6 +132,15 @@ class SexprBackend(Backend):
 
         def mutate(sch):
             sym = _find_symbol(sch, reference)
+            # Renaming a Reference onto one that already exists silently commits two
+            # symbols with the same designator — duplicate-ref BOM/netlist corruption
+            # the non-fatal ERC gate would not roll back. Fresh-reference renames and
+            # no-op self-sets stay allowed. (duplicate_symbol guards the same case.)
+            if name.lower() == "reference" and value != reference and _symbol_exists(sch, value):
+                raise BackendError(
+                    f"Cannot rename '{reference}' to '{value}': a symbol with "
+                    f"reference '{value}' already exists."
+                )
             try:
                 getattr(sym.property, name).value = value
             except Exception as exc:  # unknown property name

@@ -476,9 +476,11 @@ class IpcBackend(Backend):
         ``except IOError: continue``, so a KiCad crash mid-fill would spin it
         forever — wedging the single-threaded MCP event loop. We drive the
         non-blocking variant and poll KiCad ourselves: AS_BUSY means still
-        filling, a clean ping means done, a transport error means the GUI went
-        away. A stuck thread would poison the cached connection, so this stays
-        on the calling thread behind a real ``time.monotonic`` deadline.
+        filling, a clean ping means done, and a transport timeout is ALSO "still
+        filling" (a blocking fill stalls the event loop so the ping cannot be
+        answered). The wall-clock ``time.monotonic`` deadline is the sole
+        backstop for a GUI that has genuinely died, and keeps us on the calling
+        thread (a stuck worker thread would poison the cached connection).
         """
         board = self.get_board()
         client = self._kicad  # ping the same client _connect() cached
@@ -492,16 +494,19 @@ class IpcBackend(Backend):
                 if getattr(exc, "code", None) == ApiStatusCode.AS_BUSY:
                     continue  # still filling
                 raise BackendError(f"Zone refill failed: {exc}") from exc
-            except (OSError, _kerr.ConnectionError) as exc:
-                # kipy.errors.ConnectionError is NOT an OSError subclass — catch both.
-                raise BackendError(
-                    "Lost connection to KiCad during zone refill (the window was "
-                    "closed or KiCad crashed). Check the GUI."
-                ) from exc
+            except (OSError, _kerr.ConnectionError):
+                # A blocking zone fill stalls KiCad's event loop, so the ping's
+                # recv() times out and kipy wraps that pynng Timeout into
+                # ConnectionError (not an OSError subclass — catch both). During an
+                # active refill this is the EXPECTED signature of a large fill in
+                # progress, NOT a crash — keep polling. The time.monotonic()
+                # deadline below is the real backstop for a GUI that has died.
+                continue
             return {"refilled": True}
         raise BackendError(
             f"Zone refill did not complete within {timeout_s:.0f}s. KiCad may still be "
-            "filling a large board, or the GUI may have stopped responding — check it."
+            "filling a large board, may have stopped responding, or may have quit — "
+            "check the GUI."
         )
 
     # --- Persistence ------------------------------------------------------------------

@@ -124,6 +124,28 @@ def test_normal_erc_success_path_unaffected(tmp_path):
     assert result["erc"] is None
 
 
+def test_set_symbol_property_rejects_reference_collision(tmp_path):
+    # Regression: renaming R1's Reference onto R2 (already present) would silently
+    # commit two symbols both named 'R2' — duplicate-ref BOM/netlist corruption the
+    # non-fatal ERC gate does not roll back. Reject before the atomic os.replace(),
+    # leaving the file byte-identical.
+    backend = _backend(tmp_path)
+    sch = _project_sch(tmp_path)
+    before = sch.read_bytes()
+    with pytest.raises(BackendError, match="already exists"):
+        backend.set_symbol_property(sch, "R1", "Reference", "R2")
+    assert sch.read_bytes() == before  # untouched
+
+
+def test_set_symbol_property_allows_fresh_reference_rename(tmp_path):
+    # A rename to an unused designator is legitimate and still succeeds.
+    backend = _backend(tmp_path)
+    sch = _project_sch(tmp_path)
+    backend.set_symbol_property(sch, "R1", "Reference", "R99")
+    refs = {c["reference"] for c in backend.read_components(sch)}
+    assert "R99" in refs and "R1" not in refs
+
+
 @pytest.mark.requires_kicad
 def test_real_cli_erc_gate_smoke(tmp_path):
     # Light smoke test against a real kicad-cli, if present, that the happy

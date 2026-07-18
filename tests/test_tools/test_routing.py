@@ -75,6 +75,23 @@ def test_coerce_points_accepts_pairs_as_float_tuples():
     assert routing.coerce_points([[1, 2], (3, 4)]) == [(1.0, 2.0), (3.0, 4.0)]
 
 
+def test_coerce_points_rejects_string_point():
+    # '12' is subscriptable, so without a guard it silently coerces to (1.0, 2.0) —
+    # a wrong coordinate. It must raise the same actionable shape error instead.
+    with pytest.raises(ValueError, match=r"point 0 must be \[x_mm, y_mm\]"):
+        routing.coerce_points(["12", "34"])
+
+
+def test_coerce_points_rejects_nan():
+    with pytest.raises(ValueError, match=r"point 0 coordinates must be finite"):
+        routing.coerce_points([[float("nan"), 0.0], [1.0, 1.0]])
+
+
+def test_coerce_points_rejects_inf():
+    with pytest.raises(ValueError, match=r"point 1 coordinates must be finite"):
+        routing.coerce_points([[0.0, 0.0], [float("inf"), 1.0]])
+
+
 def test_route_trace_impl_rejects_flat_list(rec_ctx):
     ctx, backend = rec_ctx
     with pytest.raises(ValueError, match=r"point 0 must be \[x_mm, y_mm\]"):
