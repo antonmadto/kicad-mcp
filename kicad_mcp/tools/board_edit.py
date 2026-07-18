@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from kicad_mcp.backends import Capability, IpcBackend
 from kicad_mcp.context import AppContext
+from kicad_mcp.tools.routing import coerce_points
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -53,7 +54,7 @@ def get_netclasses_impl(ctx: AppContext) -> list[dict]:
 
 
 def add_zone_impl(ctx: AppContext, layer: str, polygon_mm: list, net: str | None = None) -> dict:
-    pts = [(float(p[0]), float(p[1])) for p in polygon_mm]
+    pts = coerce_points(polygon_mm, item="polygon vertex")
     return _ipc(ctx).add_zone(layer, pts, net)
 
 

@@ -17,14 +17,28 @@ def _ipc(ctx: AppContext) -> IpcBackend:
     return backend
 
 
-def _pts(points_mm: list) -> list[tuple[float, float]]:
-    return [(float(p[0]), float(p[1])) for p in points_mm]
+def coerce_points(points_mm: list, item: str = "point") -> list[tuple[float, float]]:
+    """Coerce caller-supplied waypoints to float ``(x, y)`` pairs, shape-checked.
+
+    LLM callers commonly flatten to ``[x0, y0, x1, y1]`` or pass ``{"x", "y"}``
+    objects instead of ``[[x0, y0], ...]``; without a check those surface as a
+    bare IndexError/KeyError/TypeError with no hint of the expected shape. Raise
+    one actionable ValueError naming the offending index instead.
+    """
+    pts: list[tuple[float, float]] = []
+    for i, p in enumerate(points_mm):
+        try:
+            x, y = float(p[0]), float(p[1])
+        except (TypeError, KeyError, IndexError, ValueError):
+            raise ValueError(f"{item} {i} must be [x_mm, y_mm], got {p!r}") from None
+        pts.append((x, y))
+    return pts
 
 
 def route_trace_impl(
     ctx: AppContext, points_mm: list, width_mm: float, layer: str, net: str | None = None
 ) -> dict:
-    return _ipc(ctx).route_trace(_pts(points_mm), width_mm, layer, net)
+    return _ipc(ctx).route_trace(coerce_points(points_mm), width_mm, layer, net)
 
 
 def add_via_impl(
@@ -47,7 +61,9 @@ def route_differential_pair_impl(
     net_p: str,
     net_n: str,
 ) -> dict:
-    return _ipc(ctx).route_differential_pair(_pts(points_mm), width_mm, gap_mm, layer, net_p, net_n)
+    return _ipc(ctx).route_differential_pair(
+        coerce_points(points_mm), width_mm, gap_mm, layer, net_p, net_n
+    )
 
 
 def register(mcp: FastMCP, ctx: AppContext) -> None:

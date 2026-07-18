@@ -14,6 +14,7 @@ nanometre/decidegree internals happens here and only here.
 from __future__ import annotations
 
 import tempfile
+import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,7 @@ try:  # kipy is an optional heavy dependency; detection must not hard-fail witho
     import kipy.board_types as _bt  # type: ignore
     import kipy.errors as _kerr  # type: ignore
     from kipy.geometry import PolygonWithHoles, PolyLineNode, Vector2  # type: ignore
+    from kipy.proto.common import ApiStatusCode  # type: ignore
     from kipy.util.units import from_mm, to_mm  # type: ignore
 
     _KIPY_IMPORT_ERROR: Exception | None = None
@@ -34,6 +36,7 @@ except Exception as exc:  # pragma: no cover - import environment dependent
     kipy = None  # type: ignore[assignment]
     _bt = None  # type: ignore[assignment]
     _kerr = None  # type: ignore[assignment]
+    ApiStatusCode = None  # type: ignore[assignment]
     _KIPY_IMPORT_ERROR = exc
 
 _GUI_HELP = (
@@ -171,10 +174,18 @@ class IpcBackend(Backend):
         try:
             return kicad.get_board()
         except Exception as exc:
-            raise BackendError(
-                "Connected to KiCad, but no board is open in the PCB editor. "
-                "Open the .kicad_pcb in KiCad first."
-            ) from exc
+            # The cached client may be a boardless fallback (line ``_connect`` picked
+            # while no candidate had a board) while a board has since opened in a
+            # sibling KiCad process. ``_connect`` returns the cached client as long
+            # as its ping succeeds, so re-probing needs the cache dropped first.
+            self._kicad = None
+            try:
+                return self._connect().get_board()
+            except Exception:
+                raise BackendError(
+                    "Connected to KiCad, but no board is open in the PCB editor. "
+                    "Open the .kicad_pcb in KiCad first."
+                ) from exc
 
     @contextmanager
     def commit(self, message: str) -> Iterator[Any]:
@@ -267,8 +278,12 @@ class IpcBackend(Backend):
             angle = fp.orientation
             angle.degrees = degrees
             fp.orientation = angle
+            # The setter normalizes to [-180, 180) in place, so 450° is stored as
+            # 90°. Report what actually landed on the board (matching list_footprints),
+            # not the raw request, or a follow-up read looks like a second rotation.
+            stored_deg = fp.orientation.degrees
             board.update_items(fp)
-        return {"reference": reference, "rotation_deg": degrees}
+        return {"reference": reference, "rotation_deg": stored_deg}
 
     def duplicate_footprint(
         self,
@@ -396,6 +411,12 @@ class IpcBackend(Backend):
 
         if len(points_mm) < 2:
             raise BackendError("route_differential_pair needs at least 2 points.")
+        if width_mm <= 0:
+            raise BackendError("Track width must be positive (mm).")
+        if gap_mm <= 0:
+            # A zero/negative gap collapses ``half`` and offsets P onto N's side
+            # (and vice versa), silently crossing the pair — reject it up front.
+            raise BackendError("Differential-pair gap must be positive (mm).")
         half = (width_mm + gap_mm) / 2.0
         path_p = offset_polyline(points_mm, +half)
         path_n = offset_polyline(points_mm, -half)
@@ -447,10 +468,41 @@ class IpcBackend(Backend):
             board.create_items(zone)
         return {"layer": layer, "points": len(polygon_mm), "net": net_name}
 
-    def refill_zones(self) -> dict:
+    def refill_zones(self, timeout_s: float = 60.0) -> dict:
+        """Refill all copper zones, bounded by our own wall-clock deadline.
+
+        kipy's blocking loop never enforces its documented cap (its ``sleeps``
+        counter is never incremented) and swallows a lost connection with
+        ``except IOError: continue``, so a KiCad crash mid-fill would spin it
+        forever — wedging the single-threaded MCP event loop. We drive the
+        non-blocking variant and poll KiCad ourselves: AS_BUSY means still
+        filling, a clean ping means done, a transport error means the GUI went
+        away. A stuck thread would poison the cached connection, so this stays
+        on the calling thread behind a real ``time.monotonic`` deadline.
+        """
         board = self.get_board()
-        board.refill_zones()
-        return {"refilled": True}
+        client = self._kicad  # ping the same client _connect() cached
+        board.refill_zones(block=False)  # returns at once; API is AS_BUSY until done
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            try:
+                client.ping()
+            except _kerr.ApiError as exc:
+                if getattr(exc, "code", None) == ApiStatusCode.AS_BUSY:
+                    continue  # still filling
+                raise BackendError(f"Zone refill failed: {exc}") from exc
+            except (OSError, _kerr.ConnectionError) as exc:
+                # kipy.errors.ConnectionError is NOT an OSError subclass — catch both.
+                raise BackendError(
+                    "Lost connection to KiCad during zone refill (the window was "
+                    "closed or KiCad crashed). Check the GUI."
+                ) from exc
+            return {"refilled": True}
+        raise BackendError(
+            f"Zone refill did not complete within {timeout_s:.0f}s. KiCad may still be "
+            "filling a large board, or the GUI may have stopped responding — check it."
+        )
 
     # --- Persistence ------------------------------------------------------------------
 
