@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from kicad_mcp.config import (
     DEFAULT_CLI_TIMEOUT,
     DEFAULT_IPC_TIMEOUT,
@@ -54,6 +56,24 @@ def test_timeout_parsing_and_fallback():
     assert Config.from_env({"KICAD_MCP_CLI_TIMEOUT": "30"}).cli_timeout == 30.0
     bad = Config.from_env({"KICAD_MCP_CLI_TIMEOUT": "not-a-number"})
     assert bad.cli_timeout == DEFAULT_CLI_TIMEOUT
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "-inf", "-5", "0"])
+def test_timeouts_reject_non_finite_and_non_positive_values(bad):
+    # Regression: nan defeated subprocess.run(timeout=...) entirely (never
+    # expires); inf overflowed int(timeout * 1000) in the IPC connect path;
+    # <=0 fired TimeoutExpired instantly. All must fall back to the default.
+    cli_cfg = Config.from_env({"KICAD_MCP_CLI_TIMEOUT": bad})
+    assert cli_cfg.cli_timeout == DEFAULT_CLI_TIMEOUT
+
+    ipc_cfg = Config.from_env({"KICAD_MCP_IPC_TIMEOUT": bad})
+    assert ipc_cfg.ipc_timeout == DEFAULT_IPC_TIMEOUT
+
+
+def test_timeouts_accept_normal_positive_values():
+    cfg = Config.from_env({"KICAD_MCP_CLI_TIMEOUT": "45", "KICAD_MCP_IPC_TIMEOUT": "2.5"})
+    assert cfg.cli_timeout == 45.0
+    assert cfg.ipc_timeout == 2.5
 
 
 def test_describe_is_json_serializable():

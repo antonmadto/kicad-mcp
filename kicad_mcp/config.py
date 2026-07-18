@@ -6,6 +6,7 @@ All configuration is namespaced ``KICAD_MCP_*`` (PLAN.md §3). This module is pu
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,13 +38,21 @@ def _parse_bool(value: str | None, *, default: bool = False) -> bool:
     return default
 
 
-def _parse_float(value: str | None, *, default: float) -> float:
+def _parse_float(value: str | None, *, default: float, positive: bool = False) -> float:
     if value is None:
         return default
     try:
-        return float(value.strip())
+        result = float(value.strip())
     except (ValueError, AttributeError):
         return default
+    # nan/inf silently defeat subprocess.run(timeout=...) (nan never expires;
+    # inf overflows int() in the IPC millisecond conversion), and a non-positive
+    # timeout fires TimeoutExpired instantly — all fall back to the safe default.
+    if not math.isfinite(result):
+        return default
+    if positive and result <= 0:
+        return default
+    return result
 
 
 def _parse_paths(value: str | None) -> tuple[Path, ...]:
@@ -99,8 +108,12 @@ class Config:
             cli_path=_parse_optional_path(env.get(ENV_CLI_PATH)),
             freerouting_jar=_parse_optional_path(env.get(ENV_FREEROUTING_JAR)),
             allow_schematic_write=_parse_bool(env.get(ENV_ALLOW_SCHEMATIC_WRITE)),
-            cli_timeout=_parse_float(env.get(ENV_CLI_TIMEOUT), default=DEFAULT_CLI_TIMEOUT),
-            ipc_timeout=_parse_float(env.get(ENV_IPC_TIMEOUT), default=DEFAULT_IPC_TIMEOUT),
+            cli_timeout=_parse_float(
+                env.get(ENV_CLI_TIMEOUT), default=DEFAULT_CLI_TIMEOUT, positive=True
+            ),
+            ipc_timeout=_parse_float(
+                env.get(ENV_IPC_TIMEOUT), default=DEFAULT_IPC_TIMEOUT, positive=True
+            ),
         )
 
     def describe(self) -> dict:

@@ -84,7 +84,14 @@ class SexprBackend(Backend):
         """
         path = self.assert_writable(sch_path)
         has_cli = cli_backend is not None and cli_backend.is_available()
-        baseline_errors = cli_backend.run_erc(path)["counts"]["error"] if has_cli else None
+        # Non-fatal: an ERC invocation problem on the PRE-edit file (crash, no
+        # report, malformed JSON) must never block an otherwise-safe edit.
+        baseline_errors = None
+        if has_cli:
+            try:
+                baseline_errors = cli_backend.run_erc(path)["counts"]["error"]
+            except BackendError:
+                baseline_errors = None
 
         # Atomic swap: build the edited file in a sibling temp, validate it by
         # re-parsing, then os.replace() into place. The original .kicad_sch is
@@ -104,11 +111,18 @@ class SexprBackend(Backend):
         # Soft gate (PLAN.md §7): re-run ERC and REPORT it — including the delta
         # vs before the edit — so the caller can see new violations. An in-progress
         # design may legitimately gain floating-pin errors (e.g. a just-added part
-        # not yet wired), so this is informational, not an auto-rollback.
+        # not yet wired), so this is informational, not an auto-rollback. The write
+        # above already committed via os.replace(), so an ERC failure here (CLI
+        # crash, no report, malformed JSON) must be reported as informational data,
+        # NOT raised — raising here would tell the caller the edit failed when the
+        # file on disk was in fact successfully mutated.
         erc = None
         if has_cli:
-            erc = cli_backend.run_erc(path)
-            erc = {**erc, "new_errors": erc["counts"].get("error", 0) - (baseline_errors or 0)}
+            try:
+                erc = cli_backend.run_erc(path)
+                erc = {**erc, "new_errors": erc["counts"].get("error", 0) - (baseline_errors or 0)}
+            except BackendError as exc:
+                erc = {"error": f"post-edit ERC could not run: {exc}"}
         return {"schematic": str(path), "erc": erc}
 
     def set_symbol_property(

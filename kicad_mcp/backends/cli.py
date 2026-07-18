@@ -172,16 +172,21 @@ class CliBackend(Backend):
     def export_gerbers(self, pcb_path: Path | str, output_dir: Path | str) -> list[Path]:
         out_dir = Path(output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        before = set(out_dir.iterdir())
+        # kicad-cli overwrites existing gerbers in place, so a plain before/after
+        # set-diff on directory contents misses every file that already existed
+        # (a re-export into the default fixed output dir would report files: []
+        # even though the full set was just regenerated). Snapshot mtimes instead
+        # and report anything new OR whose mtime actually changed.
+        before = _mtimes(out_dir)
         self._run_checked(["pcb", "export", "gerbers", "-o", f"{out_dir}{os.sep}", str(pcb_path)])
-        return sorted(set(out_dir.iterdir()) - before)
+        return _changed_since(out_dir, before)
 
     def export_drill(self, pcb_path: Path | str, output_dir: Path | str) -> list[Path]:
         out_dir = Path(output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        before = set(out_dir.iterdir())
+        before = _mtimes(out_dir)
         self._run_checked(["pcb", "export", "drill", "-o", f"{out_dir}{os.sep}", str(pcb_path)])
-        return sorted(set(out_dir.iterdir()) - before)
+        return _changed_since(out_dir, before)
 
     def export_pos(self, pcb_path: Path | str, output: Path | str, *, fmt: str = "csv") -> Path:
         out = Path(output)
@@ -236,6 +241,19 @@ class CliBackend(Backend):
         out = Path(output)
         self._run_checked(["pcb", "render", "--side", side, "-o", str(out), str(pcb_path)])
         return out
+
+
+def _mtimes(out_dir: Path) -> dict[Path, int]:
+    return {p: p.stat().st_mtime_ns for p in out_dir.iterdir()}
+
+
+def _changed_since(out_dir: Path, before: dict[Path, int]) -> list[Path]:
+    """Files in ``out_dir`` that are new or whose mtime changed vs ``before``."""
+    return sorted(
+        p
+        for p in out_dir.iterdir()
+        if p not in before or p.stat().st_mtime_ns != before[p]
+    )
 
 
 def _summarize(violations: list[dict], *, kind: str, data: dict) -> dict:

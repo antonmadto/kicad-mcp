@@ -69,9 +69,18 @@ def create_project_impl(ctx: AppContext, name: str, directory: str) -> dict:
     pcb.write_text(_EMPTY_PCB)
 
     # Validity gate: a fresh, empty schematic must pass ERC with zero violations.
+    # Roll back the files this call just wrote if the gate raises, so a failed
+    # create_project leaves the target directory exactly as it was before —
+    # otherwise a retry under the same name hits the anti-overwrite guard above
+    # with no hint that an orphaned partial project is sitting on disk.
     erc = None
     if ctx.backends.cli.is_available():
-        erc = ctx.backends.cli.run_erc(sch)
+        try:
+            erc = ctx.backends.cli.run_erc(sch)
+        except Exception:
+            for target in (pro, sch, pcb):
+                target.unlink(missing_ok=True)
+            raise
 
     info = resolve(ctx, str(pro)).describe()
     info["erc_violations"] = erc["total"] if erc else None

@@ -51,12 +51,25 @@ class Task:
 class TaskStore:
     """Thread-safe registry + executor for background tasks."""
 
-    def __init__(self, max_workers: int = 4) -> None:
+    def __init__(self, max_workers: int = 4, max_finished: int = 100) -> None:
         self._tasks: dict[str, Task] = {}
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="kicad-mcp")
+        # Bound retained finished-task payloads (results can be large: full
+        # finding lists, file manifests) so a long-lived server doesn't leak
+        # memory when a client polls but never calls cleanup_tasks.
+        self._max_finished = max_finished
         # Don't let an in-flight background task hang process exit.
         atexit.register(self.shutdown)
+
+    def _evict_finished_locked(self) -> None:
+        """Drop oldest-finished tasks beyond the retention cap. Caller holds ``_lock``."""
+        finished = [t for t in self._tasks.values() if t.status in ("done", "error")]
+        if len(finished) <= self._max_finished:
+            return
+        finished.sort(key=lambda t: t.finished_at or t.created_at)
+        for t in finished[: len(finished) - self._max_finished]:
+            del self._tasks[t.id]
 
     def submit(self, kind: str, fn: Callable[[], Any]) -> Task:
         task = Task(id=f"task_{uuid.uuid4().hex[:12]}", kind=kind)
@@ -79,6 +92,7 @@ class TaskStore:
             finally:
                 with self._lock:
                     task.finished_at = _now_iso()
+                    self._evict_finished_locked()
 
         self._pool.submit(run)
         return task

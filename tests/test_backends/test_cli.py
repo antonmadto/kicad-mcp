@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -77,6 +78,60 @@ def test_missing_override_returned_for_error_messaging():
 def test_backend_unavailable_for_bogus_path():
     backend = CliBackend(Config.from_env({}), path=Path("/definitely/not/here/kicad-cli"))
     assert backend.is_available() is False
+
+
+def test_export_gerbers_reports_files_overwritten_on_reexport(tmp_path):
+    # Regression: a plain before/after set-diff on directory contents misses
+    # any file that already existed (kicad-cli overwrites gerbers in place),
+    # so re-exporting into the fixed default output dir reported files: []
+    # even though the full set was just regenerated.
+    backend = CliBackend(Config.from_env({}), path=Path("/bin/true"))
+    out_dir = tmp_path / "gerbers"
+    out_dir.mkdir()
+    stale = out_dir / "board-F_Cu.gtl"
+    stale.write_text("stale content from a prior export")
+    old_mtime_ns = stale.stat().st_mtime_ns
+
+    def fake_run_checked(args):
+        stale.write_text("freshly regenerated content")
+        # Force a distinct mtime regardless of filesystem clock resolution.
+        os.utime(stale, ns=(old_mtime_ns + 10**9, old_mtime_ns + 10**9))
+
+    backend._run_checked = fake_run_checked
+    files = backend.export_gerbers(Path("board.kicad_pcb"), out_dir)
+    assert stale in files
+
+
+def test_export_drill_reports_files_overwritten_on_reexport(tmp_path):
+    backend = CliBackend(Config.from_env({}), path=Path("/bin/true"))
+    out_dir = tmp_path / "drill"
+    out_dir.mkdir()
+    stale = out_dir / "board.drl"
+    stale.write_text("stale drill file")
+    old_mtime_ns = stale.stat().st_mtime_ns
+
+    def fake_run_checked(args):
+        stale.write_text("freshly regenerated drill file")
+        os.utime(stale, ns=(old_mtime_ns + 10**9, old_mtime_ns + 10**9))
+
+    backend._run_checked = fake_run_checked
+    files = backend.export_drill(Path("board.kicad_pcb"), out_dir)
+    assert stale in files
+
+
+def test_export_gerbers_still_reports_brand_new_files(tmp_path):
+    # Sanity: the new mtime-based diff must still catch genuinely new outputs,
+    # not just overwritten ones.
+    backend = CliBackend(Config.from_env({}), path=Path("/bin/true"))
+    out_dir = tmp_path / "gerbers"
+    out_dir.mkdir()
+
+    def fake_run_checked(args):
+        (out_dir / "board-B_Cu.gbl").write_text("new file")
+
+    backend._run_checked = fake_run_checked
+    files = backend.export_gerbers(Path("board.kicad_pcb"), out_dir)
+    assert out_dir / "board-B_Cu.gbl" in files
 
 
 @pytest.mark.requires_kicad
