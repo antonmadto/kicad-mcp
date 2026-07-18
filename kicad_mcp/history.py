@@ -36,17 +36,25 @@ def record(project_dir: Path | str, kind: str, summary: dict) -> None:
 
 
 def read(project_dir: Path | str, kind: str | None = None, limit: int = 50) -> list[dict]:
+    """Best-effort read, mirroring :func:`record`'s never-break-the-caller contract.
+
+    A stray non-UTF-8 byte (disk fault, interrupted write) or a line that is
+    valid JSON but not an object (partial/interleaved writes) is skipped
+    rather than raised — the still-readable entries are returned.
+    """
     path = _history_path(Path(project_dir))
     if not path.exists():
         return []
     entries: list[dict] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
             continue
         if kind is None or entry.get("kind") == kind:
             entries.append(entry)

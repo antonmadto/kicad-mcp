@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from kicad_mcp.utils import sexpr as sx
 
 
@@ -27,6 +29,15 @@ def test_first_value_default():
     node = ["thing", ["a", 1]]
     assert sx.first_value(node, "a") == 1
     assert sx.first_value(node, "missing", default="fallback") == "fallback"
+
+
+def test_parse_file_wraps_malformed_sexpr_with_actionable_message(tmp_path):
+    # A truncated/mid-save .kicad_pcb must raise an actionable ValueError
+    # naming the file, not a raw sexpdata parser-internals exception.
+    truncated = tmp_path / "broken.kicad_pcb"
+    truncated.write_text('(kicad_pcb (version 20221018) (general (thickness 1.6)', encoding="utf-8")
+    with pytest.raises(ValueError, match="broken.kicad_pcb"):
+        sx.parse_file(truncated)
 
 
 def test_sample_arc_public_alias():

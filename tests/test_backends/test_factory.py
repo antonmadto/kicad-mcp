@@ -13,6 +13,7 @@ from kicad_mcp.backends import (
     SexprBackend,
     create_backends,
 )
+from kicad_mcp.backends.base import Backend
 from kicad_mcp.config import Config
 
 
@@ -72,3 +73,44 @@ def test_write_capability_requires_flag():
         pytest.skip("sexpdata/kicad-skip not installed")
     assert Capability.WRITE_SCHEMATIC not in disabled.capabilities()
     assert Capability.WRITE_SCHEMATIC in enabled.capabilities()
+
+
+class _FakeBackend(Backend):
+    """Toy backend whose availability we control, to exercise the probe cache."""
+
+    name = "fake"
+
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
+        self.online = False
+        self.probe_count = 0
+
+    def _detect_available(self) -> bool:
+        self.probe_count += 1
+        return self.online
+
+    def _capabilities_when_available(self) -> frozenset[Capability]:
+        return frozenset({Capability.VERIFY})
+
+
+def test_is_available_reprobes_until_positive():
+    # A GUI/CLI that appears mid-session (started after the server) must be
+    # picked up without a restart -- a False/None probe is never cached.
+    backend = _FakeBackend(Config.from_env())
+    assert backend.is_available() is False
+    assert backend.probe_count == 1
+    assert backend.is_available() is False
+    assert backend.probe_count == 2  # re-probed: still not cached
+
+    backend.online = True
+    assert backend.is_available() is True
+    assert backend.probe_count == 3
+
+
+def test_is_available_caches_positive_result():
+    backend = _FakeBackend(Config.from_env())
+    backend.online = True
+    assert backend.is_available() is True
+    assert backend.probe_count == 1
+    assert backend.is_available() is True
+    assert backend.probe_count == 1  # not re-probed once positive

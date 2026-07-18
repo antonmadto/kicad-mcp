@@ -14,7 +14,15 @@ import sexpdata
 
 def parse_file(path: Path | str) -> list:
     # KiCad files are UTF-8; never decode with the platform-default codec.
-    return sexpdata.loads(Path(path).read_text(encoding="utf-8"))
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    try:
+        return sexpdata.loads(text)
+    except Exception as exc:  # sexpdata raises several internal exception types
+        raise ValueError(
+            f"Failed to parse {p}: not a valid KiCad s-expression file — is it "
+            f"truncated or mid-save? ({exc})"
+        ) from exc
 
 
 def sym(x: Any) -> Any:

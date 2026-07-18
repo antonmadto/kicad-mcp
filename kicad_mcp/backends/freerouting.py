@@ -25,7 +25,10 @@ def _java() -> str | None:
 
 
 def freerouting_available(jar_path: Path | str | None) -> bool:
-    return bool(jar_path) and Path(jar_path).exists() and _java() is not None
+    # is_file(), not exists(): a directory (e.g. the extracted release folder,
+    # a plausible admin mistake) would otherwise pass and later fail with an
+    # opaque "java -jar <directory>" error instead of the actionable message.
+    return bool(jar_path) and Path(jar_path).is_file() and _java() is not None
 
 
 def route_dsn(
@@ -40,7 +43,7 @@ def route_dsn(
     dsn = Path(dsn_path)
     if not dsn.exists():
         raise BackendError(f"DSN file not found: {dsn}")
-    if not jar_path or not Path(jar_path).exists():
+    if not jar_path or not Path(jar_path).is_file():
         raise BackendError(
             "Freerouting is not configured. Set KICAD_MCP_FREEROUTING_JAR to the "
             "freerouting.jar path (see github.com/freerouting/freerouting)."

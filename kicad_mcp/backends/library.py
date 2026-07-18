@@ -46,7 +46,7 @@ def _footprint_dirs(env: dict) -> list[Path]:
     return [root / "footprints"] if root else []
 
 
-_SYMBOL_RE = re.compile(r'^\t\(symbol "([^"]+)"', re.M)
+_SYMBOL_RE = re.compile(r'^\s*\(symbol "([^"]+)"', re.M)
 
 
 def _match_score(query: str, lib: str, name: str) -> int | None:
@@ -106,7 +106,9 @@ def search_symbols(query: str, env: dict | None = None, limit: int = 40) -> list
                         )
                     )
     scored.sort(key=lambda t: (t[0], t[1]))
-    return [item for _, _, item in scored[:limit]]
+    # A negative/zero limit must not slice from the end (or return everything
+    # via ``scored[:negative]`` dropping only the tail) — clamp to >= 0.
+    return [item for _, _, item in scored[: max(0, limit)]]
 
 
 def search_footprints(query: str, env: dict | None = None, limit: int = 40) -> list[dict]:
@@ -130,7 +132,7 @@ def search_footprints(query: str, env: dict | None = None, limit: int = 40) -> l
                         )
                     )
     scored.sort(key=lambda t: (t[0], t[1]))
-    return [item for _, _, item in scored[:limit]]
+    return [item for _, _, item in scored[: max(0, limit)]]
 
 
 # --- JLCPCB parts (SQLite; jlcparts-style schema) ----------------------------
@@ -168,16 +170,20 @@ def search_jlcpcb_parts(
     con = sqlite3.connect(uri, uri=True)
     try:
         con.row_factory = sqlite3.Row
-        like = f"%{query}%"
+        # SQLite LIKE treats bare '%'/'_' in the *query* as wildcards too, and a
+        # negative LIMIT means "unlimited" (not an error) — escape the former
+        # and clamp the latter so an untrusted query can't defeat pagination.
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
         sql = (
             "SELECT lcsc, mfr, description, package, basic, price, stock "
-            "FROM components WHERE (mfr LIKE ? OR description LIKE ?) "
+            "FROM components WHERE (mfr LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\') "
         )
         params: list = [like, like]
         if basic_only:
             sql += "AND basic = 1 "
         sql += "ORDER BY basic DESC, stock DESC LIMIT ?"
-        params.append(limit)
+        params.append(max(1, min(int(limit), 1000)))
         rows = con.execute(sql, params).fetchall()
     except sqlite3.Error as exc:
         raise BackendError(f"JLCPCB DB query failed (unexpected schema?): {exc}") from exc

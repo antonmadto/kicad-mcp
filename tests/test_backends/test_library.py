@@ -71,3 +71,52 @@ def test_jlcpcb_basic_only_filter(tmp_path):
 def test_jlcpcb_missing_db_is_actionable():
     with pytest.raises(BackendError, match="KICAD_MCP_JLCPCB_DB"):
         lib.search_jlcpcb_parts("anything", env={})
+
+
+def test_jlcpcb_negative_limit_is_clamped(tmp_path):
+    # SQLite treats a negative LIMIT as "unlimited" -- a stray -1 (or 0) must
+    # not silently defeat pagination and dump the whole matching result set.
+    db = tmp_path / "jlc.sqlite3"
+    _make_db(db)
+    rows = lib.search_jlcpcb_parts("resistor", env={"KICAD_MCP_JLCPCB_DB": str(db)}, limit=-1)
+    assert len(rows) <= 1000  # clamped, not "unlimited"
+
+
+def test_jlcpcb_like_metacharacters_are_escaped(tmp_path):
+    # A bare '%' or '_' in the query must not act as a SQL LIKE wildcard, or a
+    # query like "5%" (a tolerance spec) would match every row.
+    db = tmp_path / "jlc.sqlite3"
+    _make_db(db)
+    rows = lib.search_jlcpcb_parts("%", env={"KICAD_MCP_JLCPCB_DB": str(db)})
+    assert rows == []
+
+
+# --- symbol scanner regex (space-indented vendor libraries) ------------------
+
+
+def test_search_symbols_matches_space_indented_file(tmp_path):
+    # KiCad's own writer uses a tab, but KICAD_MCP_SYMBOL_PATHS is documented
+    # to point at arbitrary vendor libraries, which commonly use spaces.
+    sym_dir = tmp_path / "symbols"
+    sym_dir.mkdir()
+    (sym_dir / "Vendor.kicad_sym").write_text(
+        '(kicad_symbol_lib (version 20211014) (generator vendor)\n'
+        '  (symbol "ESP32-WROOM-32" (in_bom yes) (on_board yes)\n'
+        '    (property "Reference" "U")\n'
+        '  )\n'
+        ')\n',
+        encoding="utf-8",
+    )
+    results = lib.search_symbols("ESP32", env={"KICAD_MCP_SYMBOL_PATHS": str(sym_dir)})
+    ids = {r["id"] for r in results}
+    assert "Vendor:ESP32-WROOM-32" in ids
+
+
+def test_search_symbols_negative_limit_does_not_crash(tmp_path):
+    sym_dir = tmp_path / "symbols"
+    sym_dir.mkdir()
+    (sym_dir / "Vendor.kicad_sym").write_text(
+        '\t(symbol "R" (in_bom yes))\n', encoding="utf-8"
+    )
+    results = lib.search_symbols("R", env={"KICAD_MCP_SYMBOL_PATHS": str(sym_dir)}, limit=-5)
+    assert results == []

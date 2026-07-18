@@ -60,7 +60,11 @@ class Backend(ABC):
         """Capabilities this backend exposes *when available*."""
 
     def is_available(self) -> bool:
-        if self._available is None:
+        # A backend's process lifecycle is external to this long-lived server
+        # (e.g. the user launches KiCad after we start), so only a positive
+        # probe is cached permanently; None/False are re-probed every call —
+        # a vanished GUI already degrades gracefully at call time regardless.
+        if not self._available:
             self._available = self._detect_available()
         return self._available
 
