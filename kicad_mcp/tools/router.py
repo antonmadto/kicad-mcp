@@ -8,6 +8,7 @@ over the live FastMCP registry (no static duplication of tool metadata).
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from kicad_mcp.context import AppContext
@@ -112,7 +113,17 @@ def _normalize_result(res) -> object:
     if isinstance(res, list):
         texts = [getattr(c, "text", None) for c in res]
         texts = [t for t in texts if t is not None]
-        return texts[0] if len(texts) == 1 else texts
+        if len(texts) == 1:
+            # FastMCP only emits *structured* content for return types with a
+            # defined object/array schema; a bare `-> dict` tool (most of this
+            # surface) shows up here as one JSON-encoded TextContent. Parse it
+            # so execute_tool returns the same object a direct call would,
+            # instead of a string the caller has to re-parse themselves.
+            try:
+                return json.loads(texts[0])
+            except (ValueError, TypeError):
+                return texts[0]
+        return texts
     return res
 
 

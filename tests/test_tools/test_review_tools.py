@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from kicad_mcp.config import Config
 from kicad_mcp.context import AppContext
+from kicad_mcp.review_engine.registry import TOPICS
 from kicad_mcp.tools import review
 
 REVIEW_FIXTURES = Path(__file__).parent.parent / "fixtures" / "review"
@@ -60,3 +62,35 @@ def test_set_design_context_roundtrip(review_ctx):
     assert result["context"]["connector_nets"] == ["USB_DP", "USB_DM"]
     # Context persists and the review still runs clean.
     assert review.review_design_impl(review_ctx, _pro("clean_4layer"))["total"] == 0
+
+
+def test_set_design_context_rejects_zero_rise_time(review_ctx):
+    # rise_time_ns=0 would otherwise reach f_knee_hz = 0.5 / (0 * 1e-9) and
+    # crash with an opaque ZeroDivisionError instead of an actionable error.
+    with pytest.raises(ValueError, match="positive"):
+        review.set_design_context_impl(review_ctx, _pro("clean_4layer"), rise_time_ns=0)
+
+
+def test_set_design_context_rejects_negative_rise_time(review_ctx):
+    # A negative rise time silently flips f_knee_hz (and HARTLEY-F2's critical
+    # length) negative, flooding every routed net with false positives.
+    with pytest.raises(ValueError, match="positive"):
+        review.set_design_context_impl(review_ctx, _pro("clean_4layer"), rise_time_ns=-1.0)
+
+
+def test_review_topic_docstring_lists_all_topics():
+    # The docstring is the LLM client's primary source of truth for what's
+    # callable; it must never drift behind review_engine.registry.TOPICS
+    # (Phase 4 grew that tuple from 5 to 10 families without this update).
+    from kicad_mcp.server import create_server
+
+    srv = create_server()
+
+    async def go():
+        return await srv.list_tools()
+
+    tools = asyncio.run(go())
+    (review_topic_tool,) = [t for t in tools if t.name == "review_topic"]
+    description = review_topic_tool.description or ""
+    missing = [topic for topic in TOPICS if topic not in description]
+    assert not missing, f"review_topic docstring is missing topics: {missing}"

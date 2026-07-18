@@ -6,6 +6,7 @@ design context) and runs the cited Hartley/Phil rule catalog against it.
 
 from __future__ import annotations
 
+import math
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -82,6 +83,13 @@ def set_design_context_impl(
     connector_nets: list | None = None,
     fab_house: str | None = None,
 ) -> dict:
+    if rise_time_ns is not None and not (math.isfinite(rise_time_ns) and rise_time_ns > 0):
+        # f_knee_hz = 0.5 / (rise_time_ns * 1e-9): zero divides by zero, and a
+        # negative value silently flips HARTLEY-F2's critical length negative,
+        # flooding every routed net with false-positive warnings downstream.
+        raise ValueError(
+            f"rise_time_ns must be a positive finite number of nanoseconds, got {rise_time_ns!r}."
+        )
     proj = resolve(ctx, project)
     pcb = str(proj.require_board())
     current = ctx.design_contexts.get(pcb) or DesignContext()
@@ -122,7 +130,11 @@ def register(mcp: FastMCP, ctx: AppContext) -> None:
 
     @mcp.tool()
     def review_topic(project: str, topic: str) -> dict:
-        """Audit one rule family: stackup, grounding, return_path, decoupling, dfm."""
+        """Audit one rule family: stackup, grounding, return_path, decoupling, dfm,
+        transmission, crosstalk, smps, subcircuits, connectors.
+        """
+        # Kept in sync with review_engine.registry.TOPICS by
+        # test_review_tools::test_review_topic_docstring_lists_all_topics.
         return review_topic_impl(ctx, project, topic)
 
     @mcp.tool()

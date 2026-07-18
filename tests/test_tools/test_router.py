@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from kicad_mcp.server import create_server
 from kicad_mcp.tools.router import CATEGORIES, _category_of
@@ -50,3 +51,23 @@ def test_execute_tool_dispatches():
 def test_more_than_forty_tools():
     # The router pattern activates past ~40 tools (PLAN.md §3).
     assert len(_tool_names()) > 40
+
+
+def test_execute_tool_unwraps_dict_returning_tool():
+    # get_server_status returns a bare `-> dict`, which FastMCP ships as a
+    # single JSON-encoded TextContent (no structured content). execute_tool's
+    # own promise is to hand back "the tool's actual value" — a dict here,
+    # not a JSON string the caller has to parse a second time. execute_tool
+    # is itself `-> dict`, so the server's own outer dispatch wraps its reply
+    # the same way; we parse that one layer (real for every caller) and then
+    # assert the inner "result" field wasn't left double-encoded.
+    srv = create_server()
+
+    async def go():
+        return await srv.call_tool("execute_tool", {"name": "get_server_status", "arguments": {}})
+
+    content = asyncio.run(go())
+    outer = json.loads(content[0].text)
+    assert outer["tool"] == "get_server_status"
+    assert isinstance(outer["result"], dict), f"expected a dict, got {type(outer['result'])}"
+    assert outer["result"]["server"] == "kicad-mcp"
