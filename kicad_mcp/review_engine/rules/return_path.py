@@ -65,8 +65,12 @@ class TraceCrossesReferenceGap(Rule):
     citation = "HARTLEY-R5/C1 ≈ PHIL-STK-6/MIX-4 (S3 27:01, 42:59; #88 4:40)"
 
     def check(self, model: DesignModel) -> list[Finding]:
-        findings: list[Finding] = []
         extents = model.extents
+        # Group per (net, layer): a net routed as many segments through one uncovered
+        # region is ONE root cause, so it yields ONE finding — not one per segment
+        # (a real board floods otherwise; the geometric detection is unchanged).
+        grouped: dict[tuple[int, str], dict] = {}
+        order: list[tuple[int, str]] = []
         for track in model.tracks:
             ref = _reference_plane(model, track.layer)
             if ref is None:
@@ -81,20 +85,37 @@ class TraceCrossesReferenceGap(Rule):
                 continue
 
             crossing = self._first_gap(track, ref_pours, ref_voids, extents)
-            if crossing is not None:
-                net = model.nets.get(track.net_code)
-                findings.append(
-                    self.make(
-                        f"Track on '{track.layer}' crosses a gap in its reference plane "
-                        f"'{ref.name}' near ({round(crossing[0], 2)}, {round(crossing[1], 2)}). "
-                        f"Reroute so the trace stays over continuous plane copper.",
-                        Location(
-                            net=net.name if net else str(track.net_code),
-                            layer=track.layer,
-                            at={"x": round(crossing[0], 3), "y": round(crossing[1], 3)},
-                        ),
-                    )
+            if crossing is None:
+                continue
+            key = (track.net_code, track.layer)
+            entry = grouped.get(key)
+            if entry is None:
+                grouped[key] = {"ref": ref.name, "count": 1, "first": crossing}
+                order.append(key)
+            else:
+                entry["count"] += 1
+
+        findings: list[Finding] = []
+        for key in order:
+            net_code, layer = key
+            entry = grouped[key]
+            count = entry["count"]
+            first = entry["first"]
+            net = model.nets.get(net_code)
+            findings.append(
+                self.make(
+                    f"Net '{net.name if net else net_code}' crosses gaps in its reference "
+                    f"plane '{entry['ref']}' at {count} "
+                    f"place{'s' if count != 1 else ''} (first near "
+                    f"({round(first[0], 2)}, {round(first[1], 2)})). Reroute so the trace "
+                    f"stays over continuous plane copper.",
+                    Location(
+                        net=net.name if net else str(net_code),
+                        layer=layer,
+                        at={"x": round(first[0], 3), "y": round(first[1], 3)},
+                    ),
                 )
+            )
         return findings
 
     def _covered(self, sample: geo.Point, ref_pours, ref_voids) -> bool:

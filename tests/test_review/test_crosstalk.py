@@ -65,3 +65,28 @@ def test_signal_aggressor_fires_exactly_once():
     findings = _c4(_model(_PAIR + [guard, aggr], _NAMES))
     assert len(findings) == 1
     assert "AGGR" in findings[0].message and "GND" not in findings[0].message
+
+
+# Tight pair (0.4 mm apart): both legs fall inside one 0.6 mm keepout band.
+_TIGHT = [
+    Track((0, 10.0), (30, 10.0), 0.2, "F.Cu", 1),  # USB_DP
+    Track((0, 10.4), (30, 10.4), 0.2, "F.Cu", 2),  # USB_DM
+]
+_TIGHT_NAMES = {1: "USB_DP", 2: "USB_DM", 4: "AGGR"}
+
+
+def test_tight_pair_aggressor_overlap_not_double_counted():
+    # A 3 mm incidental run between the legs is within keepout of BOTH — the parallel
+    # run is still only 3 mm (< 5 mm threshold), so C4 must stay silent. Summing the
+    # two legs would count it as 6 mm, halving the sustained-run threshold and
+    # manufacturing a false positive (regression: introduced by the per-stem re-key).
+    aggr3 = Track((0, 10.2), (3, 10.2), 0.2, "F.Cu", 4)
+    assert _c4(_model(_TIGHT + [aggr3], _TIGHT_NAMES)) == []
+
+
+def test_tight_pair_genuine_run_fires_once():
+    # A genuine 6 mm sustained run trips the threshold and fires exactly ONCE.
+    aggr6 = Track((0, 10.2), (6, 10.2), 0.2, "F.Cu", 4)
+    findings = _c4(_model(_TIGHT + [aggr6], _TIGHT_NAMES))
+    assert len(findings) == 1
+    assert "AGGR" in findings[0].message

@@ -94,3 +94,20 @@ def test_review_topic_docstring_lists_all_topics():
     description = review_topic_tool.description or ""
     missing = [topic for topic in TOPICS if topic not in description]
     assert not missing, f"review_topic docstring is missing topics: {missing}"
+
+
+def test_review_board_prompt_lists_all_topics():
+    # The review_board guided prompt enumerates the review_topic families; it must not
+    # drift behind review_engine.registry.TOPICS (mirrors the review_topic docstring
+    # guard — Phase 4 grew TOPICS from 5 to 10 and the prompt was left at 5).
+    from kicad_mcp.server import create_server
+
+    srv = create_server()
+
+    async def go():
+        return await srv.get_prompt("review_board", {"project": "demo"})
+
+    result = asyncio.run(go())
+    text = " ".join(getattr(m.content, "text", "") for m in result.messages)
+    missing = [topic for topic in TOPICS if topic not in text]
+    assert not missing, f"review_board prompt is missing topics: {missing}"

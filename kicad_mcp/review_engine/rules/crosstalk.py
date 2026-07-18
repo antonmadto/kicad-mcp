@@ -62,11 +62,10 @@ class AggressorTooCloseToDiffPair(Rule):
             )
         ]
 
-        # Accumulate the close-parallel overlap length per (aggressor, pair stem,
-        # layer) ACROSS all segment comparisons, so a route split into many short
-        # segments still trips the threshold (a single segment rarely spans 5 mm)
-        # and the two legs of a pair yield ONE finding, not two.
-        overlap_by_key: dict[tuple[int, str, str], float] = {}
+        # Accumulate the close-parallel overlap per (aggressor, pair LEG, layer)
+        # across all segment comparisons: a route split into many short segments must
+        # still sum to trip the threshold (a single segment rarely spans 5 mm).
+        overlap_by_key: dict[tuple[int, int, str], float] = {}
         for pt in pair_tracks:
             keepout = _KEEPOUT_H * _height_to_reference(model, pt.layer)
             for ot in others:
@@ -76,11 +75,19 @@ class AggressorTooCloseToDiffPair(Rule):
                     pt.start, pt.end, ot.start, ot.end
                 )
                 if parallel and 0 < perp < keepout and overlap > 0:
-                    key = (ot.net_code, stem_of[pt.net_code], pt.layer)
+                    key = (ot.net_code, pt.net_code, pt.layer)
                     overlap_by_key[key] = overlap_by_key.get(key, 0.0) + overlap
 
+        # One finding per (aggressor, pair stem, layer): collapse the pair's two legs
+        # by MAX, never SUM. A tight pair puts both legs inside the same 3×H band, so
+        # summing would double-count one physical run and halve the 5 mm threshold.
+        by_stem: dict[tuple[int, str, str], float] = {}
+        for (agg_code, pair_code, layer), total in overlap_by_key.items():
+            skey = (agg_code, stem_of[pair_code], layer)
+            by_stem[skey] = max(by_stem.get(skey, 0.0), total)
+
         findings: list[Finding] = []
-        for (agg_code, stem, layer), total in sorted(overlap_by_key.items()):
+        for (agg_code, stem, layer), total in sorted(by_stem.items()):
             if total < _MIN_OVERLAP_MM:
                 continue
             keepout = _KEEPOUT_H * _height_to_reference(model, layer)

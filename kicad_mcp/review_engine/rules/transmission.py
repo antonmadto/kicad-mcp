@@ -29,8 +29,8 @@ class CriticalLengthUncontrolled(Rule):
         # Nets the user has declared controlled-impedance are handled by design;
         # F2's whole point is *un*controlled ones.
         controlled = {k.lstrip("/") for k in model.context.target_impedances}
-        findings: list[Finding] = []
-        # One finding per over-length signal net (aggregated across its segments).
+        # One entry per over-length signal net (length aggregated across its segments).
+        over: list[tuple[str, float, float, str]] = []  # (name, length, l_crit, layer)
         seen: set[int] = set()
         for track in model.tracks:
             net = model.nets.get(track.net_code)
@@ -43,16 +43,49 @@ class CriticalLengthUncontrolled(Rule):
             l_crit = (t_rise_ns / 2.0) * v
             if length > l_crit:
                 seen.add(track.net_code)
-                findings.append(
-                    self.make(
-                        f"Net '{net.name}' is routed {round(length, 1)} mm, above the "
-                        f"critical length {round(l_crit, 1)} mm for a {t_rise_ns} ns edge "
-                        f"(f_knee ≈ {round(model.context.f_knee_hz / 1e6)} MHz). Use a "
-                        f"controlled-impedance trace and terminate it, or confirm the real "
-                        f"rise time via set_design_context.",
-                        Location(net=net.name, layer=track.layer),
-                    )
+                over.append((net.name, length, l_crit, track.layer))
+
+        if not over:
+            return []
+
+        # An ASSUMED edge rate must not flood a real board with per-net warnings —
+        # false positives destroy trust (CLAUDE.md: severity tiers + design context are
+        # the guardrails). Until the user declares a real rise time, summarize as ONE
+        # INFO; only an explicit rise time earns per-net WARNINGs.
+        if not model.context.rise_time_explicit:
+            top = sorted(over, key=lambda o: o[1], reverse=True)[:5]
+            longest = ", ".join(f"{name} {round(length, 1)} mm" for name, length, _, _ in top)
+            return [
+                Finding(
+                    rule_id=self.id,
+                    severity=Severity.INFO,
+                    title=self.title,
+                    message=(
+                        f"{len(over)} signal net(s) exceed the critical length for the "
+                        f"ASSUMED {t_rise_ns} ns edge (f_knee ≈ "
+                        f"{round(model.context.f_knee_hz / 1e6)} MHz) — the default used when "
+                        f"no rise time was declared. Longest: {longest}. Call "
+                        f"set_design_context with the real rise time for a per-net "
+                        f"transmission-line audit."
+                    ),
+                    rationale=self.rationale,
+                    citation=self.citation,
+                    topic=self.topic,
                 )
+            ]
+
+        findings: list[Finding] = []
+        for name, length, l_crit, layer in over:
+            findings.append(
+                self.make(
+                    f"Net '{name}' is routed {round(length, 1)} mm, above the "
+                    f"critical length {round(l_crit, 1)} mm for a {t_rise_ns} ns edge "
+                    f"(f_knee ≈ {round(model.context.f_knee_hz / 1e6)} MHz). Use a "
+                    f"controlled-impedance trace and terminate it, or confirm the real "
+                    f"rise time via set_design_context.",
+                    Location(net=name, layer=layer),
+                )
+            )
         return findings
 
 

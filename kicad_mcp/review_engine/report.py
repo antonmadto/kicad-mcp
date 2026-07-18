@@ -27,17 +27,34 @@ class Report:
             key=lambda f: (_SEVERITY_ORDER.get(f.severity, 9), f.rule_id),
         )
 
-    def to_dict(self) -> dict:
-        return {
+    def to_dict(self, *, max_per_rule: int = 20) -> dict:
+        # Large boards can emit hundreds of findings from one rule; serializing them
+        # all makes the tool result unusable. Cap the per-rule findings list while
+        # keeping ``total`` and ``counts`` exact over ALL findings, and record what
+        # was dropped so nothing is silently hidden.
+        kept: list[Finding] = []
+        shown: dict[str, int] = {}
+        omitted: dict[str, int] = {}
+        for f in self.sorted_findings():
+            n = shown.get(f.rule_id, 0)
+            shown[f.rule_id] = n + 1
+            if n < max_per_rule:
+                kept.append(f)
+            else:
+                omitted[f.rule_id] = omitted.get(f.rule_id, 0) + 1
+        out = {
             "source": self.source,
             "topic": self.topic or "all",
             "total": len(self.findings),
             "counts": self.counts(),
-            "findings": [f.to_dict() for f in self.sorted_findings()],
+            "findings": [f.to_dict() for f in kept],
             "summary_markdown": self.to_markdown(),
         }
+        if omitted:
+            out["omitted_findings"] = omitted
+        return out
 
-    def to_markdown(self) -> str:
+    def to_markdown(self, *, max_per_rule: int = 5) -> str:
         counts = self.counts()
         scope = f" ({self.topic})" if self.topic else ""
         lines = [
@@ -50,8 +67,25 @@ class Report:
             lines.append("No findings. ✅")
             return "\n".join(lines)
 
+        rule_totals: dict[str, int] = {}
+        for f in self.findings:
+            rule_totals[f.rule_id] = rule_totals.get(f.rule_id, 0) + 1
+
         icon = {Severity.ERROR: "🔴", Severity.WARNING: "🟡", Severity.INFO: "🔵"}
+        shown: dict[str, int] = {}
         for f in self.sorted_findings():
+            n = shown.get(f.rule_id, 0)
+            shown[f.rule_id] = n + 1
+            # Render the first few findings per rule; collapse the rest to one line so
+            # the summary stays readable on boards with hundreds of findings.
+            if n > max_per_rule:
+                continue
+            if n == max_per_rule:
+                lines.append(
+                    f"... and {rule_totals[f.rule_id] - max_per_rule} more (see findings list)"
+                )
+                lines.append("")
+                continue
             loc = ""
             if f.location and not f.location.is_empty():
                 bits = []

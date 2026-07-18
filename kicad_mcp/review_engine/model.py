@@ -152,6 +152,9 @@ class DesignContext:
     target_impedances: dict[str, float] = field(default_factory=dict)
     connector_nets: list[str] = field(default_factory=list)
     fab_house: str | None = None
+    # True only once the user declares a real rise time. While False the 0.5 ns
+    # default is an ASSUMPTION, so length-driven rules must not flood warnings.
+    rise_time_explicit: bool = False
 
     @property
     def f_knee_hz(self) -> float:

@@ -203,3 +203,44 @@ def test_r5_silent_over_solid_plane():
     # Same geometry, the strip is NOT a keepout → solid reference copper → silent.
     ids = {f.rule_id for f in run_rules(_r5_model(keepout_moat=False), "return_path")}
     assert "HARTLEY-R5" not in ids
+
+
+def _r5_grouping_model(n_segments: int) -> DesignModel:
+    from kicad_mcp.review_engine.model import Track, Zone
+
+    layers = [_cu("F.Cu", 0, "signal"), _cu("In1.Cu", 1, "ground_plane")]
+    pour = Zone(1, "GND", ("In1.Cu",), [(0, 0), (100, 0), (100, 50), (0, 50)], "ground")
+    moat = Zone(
+        0, "", ("In1.Cu",), [(49, 0), (51, 0), (51, 50), (49, 50)], "unconnected", keepout=True
+    )
+    extents = {"min_x": 0, "min_y": 0, "max_x": 100, "max_y": 50, "width": 100, "height": 50}
+    m = mk_model(
+        copper_layers=layers,
+        nets={1: Net(1, "GND", "ground"), 3: Net(3, "SIG", "signal")},
+        extents=extents,
+    )
+    # n parallel F.Cu tracks of ONE net each crossing the x≈50 keepout strip.
+    m.tracks.extend(
+        Track((20, 10 + i * 2), (80, 10 + i * 2), 0.2, "F.Cu", 3) for i in range(n_segments)
+    )
+    m.zones.extend([pour, moat])
+    return m
+
+
+def _r5(model: DesignModel):
+    return [f for f in run_rules(model, "return_path") if f.rule_id == "HARTLEY-R5"]
+
+
+def test_r5_groups_segments_of_one_net_into_one_finding():
+    # A net routed as 3 segments through one uncovered region is ONE root cause:
+    # exactly one finding, whose message reports the crossing count (regression: R5
+    # emitted one finding PER segment, flooding a real board).
+    findings = _r5(_r5_grouping_model(3))
+    assert len(findings) == 1
+    assert "3 place" in findings[0].message
+
+
+def test_r5_single_segment_crossing_still_fires():
+    findings = _r5(_r5_grouping_model(1))
+    assert len(findings) == 1
+    assert findings[0].location is not None and findings[0].location.at is not None

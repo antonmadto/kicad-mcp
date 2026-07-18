@@ -103,6 +103,9 @@ def set_design_context_impl(
         ),
         connector_nets=connector_nets if connector_nets is not None else current.connector_nets,
         fab_house=fab_house if fab_house is not None else current.fab_house,
+        # Once the user declares a rise time it stays declared: a later call that only
+        # sets other fields must not silently revert F2 to its assumed-default mode.
+        rise_time_explicit=(rise_time_ns is not None) or current.rise_time_explicit,
     )
     ctx.design_contexts[pcb] = updated
     return {
