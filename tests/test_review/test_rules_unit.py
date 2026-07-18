@@ -145,3 +145,61 @@ def test_usb_ref_is_not_an_ic():
     u = Footprint(ref="U1", value="MCU", lib_id="x", at=(0, 0), rotation=0, layer="F.Cu")
     assert not _is_ic(usb)
     assert _is_ic(u)
+
+
+# --- Regressions from the Phase-4-6 correctness review -----------------------
+
+
+def test_dec1_measures_from_pads_not_centroid():
+    """A 100 nF cap 4 mm from a perimeter power PAD but >5 mm from the footprint
+    CENTROID must NOT fire DEC-1 (regression: distance was centroid-to-cap, so a
+    correctly-decoupled large package reported 'no cap within 5 mm')."""
+    from kicad_mcp.review_engine.model import Footprint, Pad
+
+    ic = Footprint(
+        ref="U1",
+        value="MCU",
+        lib_id="x",
+        at=(10, 10),
+        rotation=0,
+        layer="F.Cu",
+        pads=[Pad("U1", "1", 2, "+3V3", (16, 10), "F.Cu")],  # power pin 6 mm off centroid
+    )
+    cap = Footprint(ref="C1", value="100nF", lib_id="x", at=(20, 10), rotation=0, layer="F.Cu")
+    # Pad→cap = 4 mm (< 5, OK); centroid→cap = 10 mm (would have fired).
+    assert "PHIL-DEC-1" not in _ids(mk_model(footprints=[ic, cap]), "decoupling")
+
+
+def _r5_model(keepout_moat: bool) -> DesignModel:
+    from kicad_mcp.review_engine.model import Track, Zone
+
+    layers = [
+        _cu("F.Cu", 0, "signal"),
+        _cu("In1.Cu", 1, "ground_plane"),
+        _cu("In2.Cu", 2, "power_plane"),
+        _cu("B.Cu", 3, "signal"),
+    ]
+    pour = Zone(1, "GND", ("In1.Cu",), [(0, 0), (100, 0), (100, 50), (0, 50)], "ground")
+    moat = Zone(
+        0, "", ("In1.Cu",), [(49, 0), (51, 0), (51, 50), (49, 50)], "unconnected",
+        keepout=keepout_moat,
+    )
+    track = Track((20, 25), (80, 25), 0.2, "F.Cu", 3)  # crosses the x≈50 strip
+    extents = {"min_x": 0, "min_y": 0, "max_x": 100, "max_y": 50, "width": 100, "height": 50}
+    m = mk_model(copper_layers=layers, nets={1: Net(1, "GND", "ground")}, extents=extents)
+    m.tracks.append(track)
+    m.zones.extend([pour, moat])
+    return m
+
+
+def test_r5_fires_on_keepout_moat():
+    # A moat cut into the GND plane as a keepout (copperpour not_allowed) is a
+    # return-path void — a trace crossing it must fire R5.
+    ids = {f.rule_id for f in run_rules(_r5_model(keepout_moat=True), "return_path")}
+    assert "HARTLEY-R5" in ids
+
+
+def test_r5_silent_over_solid_plane():
+    # Same geometry, the strip is NOT a keepout → solid reference copper → silent.
+    ids = {f.rule_id for f in run_rules(_r5_model(keepout_moat=False), "return_path")}
+    assert "HARTLEY-R5" not in ids

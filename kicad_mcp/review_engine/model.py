@@ -115,6 +115,7 @@ class Zone:
     layers: tuple[str, ...]
     polygon: list[geo.Point]
     net_kind: str
+    keepout: bool = False  # rule-area zone whose copperpour is not_allowed (carves the plane)
 
     @property
     def area(self) -> float:
@@ -383,6 +384,23 @@ def _extract_tracks(root: list) -> list[Track]:
         layer = str(layer_node[1]) if layer_node and len(layer_node) >= 2 else ""
         net = int(sx.first_value(seg, "net", 0))
         tracks.append(Track(start=start, end=end, width=width, layer=layer, net_code=net))
+
+    # Curved copper is stored as sibling (arc (start)(mid)(end)...) items. Sample
+    # each sweep into short segments so length/return-path/crosstalk see the copper
+    # under the curve (a chord would understate length and miss a gap crossing).
+    for arc in sx.children(root, "arc"):
+        start = _point(arc, "start")
+        mid = _point(arc, "mid")
+        end = _point(arc, "end")
+        if start is None or mid is None or end is None:
+            continue
+        width = float(sx.first_value(arc, "width", 0.0))
+        layer_node = sx.find(arc, "layer")
+        layer = str(layer_node[1]) if layer_node and len(layer_node) >= 2 else ""
+        net = int(sx.first_value(arc, "net", 0))
+        pts = sx.sample_arc(start, mid, end) or [start, end]
+        for a, b in zip(pts, pts[1:], strict=False):
+            tracks.append(Track(start=a, end=b, width=width, layer=layer, net_code=net))
     return tracks
 
 
@@ -415,6 +433,13 @@ def _extract_zones(root: list, nets: dict[int, Net]) -> list[Zone]:
         else:
             layers = ()
         kind = nets[ncode].kind if ncode in nets else classify_net(nname)
+        # A rule-area with (keepout (copperpour not_allowed)) removes copper; treat
+        # it as a void (R5) and never as reference/plane copper. A keepout that
+        # still allows the pour leaves solid copper, so it must not count as a void.
+        keepout_node = sx.find(z, "keepout")
+        keepout = keepout_node is not None and sx.first_value(keepout_node, "copperpour") == (
+            "not_allowed"
+        )
         zones.append(
             Zone(
                 net_code=ncode,
@@ -422,9 +447,38 @@ def _extract_zones(root: list, nets: dict[int, Net]) -> list[Zone]:
                 layers=layers,
                 polygon=_polygon_pts(z),
                 net_kind=kind,
+                keepout=keepout,
             )
         )
     return zones
+
+
+_ISLAND_TOL_MM = 0.5  # same seam tolerance R5 uses: abutting pours are one island
+
+
+def _island_count(zones: list[Zone], tol: float = _ISLAND_TOL_MM) -> int:
+    """Number of electrically-distinct pours among same-net ``zones``.
+
+    Pours whose polygons overlap or touch within ``tol`` are one continuous plane
+    (a designer routinely draws one plane as several abutting pours). Only genuinely
+    separated islands count — so G1 fires on a real split, not on abutting pours.
+    """
+    n = len(zones)
+    if n <= 1:
+        return n
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a in range(n):
+        for b in range(a + 1, n):
+            if geo.polygons_within(zones[a].polygon, zones[b].polygon, tol):
+                parent[find(a)] = find(b)
+    return len({find(i) for i in range(n)})
 
 
 def _extract_stackup_and_copper(
@@ -477,7 +531,8 @@ def _extract_stackup_and_copper(
 
     copper_layers: list[CopperLayer] = []
     for idx, name in enumerate(copper_order):
-        layer_zones = [z for z in zones if name in z.layers]
+        # Keepout/rule-area zones carve copper; they are not reference/plane copper.
+        layer_zones = [z for z in zones if name in z.layers and not z.keepout]
         gnd = [z for z in layer_zones if z.net_kind == "ground"]
         pwr = [z for z in layer_zones if z.net_kind == "power"]
         role = _classify_layer_role(gnd, pwr, layer_zones, board_area, extents)
@@ -486,8 +541,10 @@ def _extract_stackup_and_copper(
                 name=name,
                 stack_index=idx,
                 role=role,
-                ground_zone_count=len(gnd),
-                power_zone_count=len(pwr),
+                # Count continuous islands, not raw pours: abutting same-net pours
+                # form one plane and must not read as a split (G1).
+                ground_zone_count=_island_count(gnd),
+                power_zone_count=_island_count(pwr),
             )
         )
 

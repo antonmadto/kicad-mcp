@@ -150,7 +150,11 @@ class I2CPullups(Rule):
 @register
 class UsbDataPullup(Rule):
     id = "PHIL-USB-2"
-    severity = Severity.ERROR
+    # Catalog severity is E, but scoped to STM32F1-era parts with no internal DP
+    # pull-up. Modern STM32 (F0/F3/F4/L0/L4) and many USB MCUs drive a firmware-
+    # controlled internal 1.5 kΩ pull-up, so a correct design has no external R and
+    # the netlist alone cannot distinguish it — kept WARNING to avoid false ERRORs.
+    severity = Severity.WARNING
     topic = "subcircuits"
     title = "USB full-speed D+ without a 1.5 kΩ pull-up"
     rationale = "Full-speed USB is detected by a 1.5 kΩ pull-up from D+ to 3.3 V; without it the host never enumerates the device."

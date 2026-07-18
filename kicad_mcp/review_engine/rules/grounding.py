@@ -24,12 +24,14 @@ class GroundPlaneSplit(Rule):
     def check(self, model: DesignModel) -> list[Finding]:
         findings: list[Finding] = []
         for layer in model.copper_layers:
+            # ground_zone_count is islands, not raw pours: abutting same-net pours
+            # are one continuous plane and must not read as a split (false ERROR).
             if layer.role in ("ground_plane", "mixed_plane") and layer.ground_zone_count >= 2:
                 findings.append(
                     self.make(
                         f"Ground plane on '{layer.name}' is split into {layer.ground_zone_count} "
-                        f"separate zones. Use one continuous ground pour and partition by placement "
-                        f"instead of cutting the plane.",
+                        f"separate islands. Use one continuous ground pour and partition by "
+                        f"placement instead of cutting the plane.",
                         Location(layer=layer.name, net="GND"),
                     )
                 )

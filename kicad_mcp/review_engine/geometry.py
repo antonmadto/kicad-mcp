@@ -50,10 +50,15 @@ def point_in_polygon(pt: Point, polygon: list[Point]) -> bool:
 
 
 def rotate(x: float, y: float, deg: float) -> Point:
-    """Rotate (x, y) by ``deg`` degrees (KiCad footprint pad transform)."""
+    """Rotate (x, y) by ``deg`` degrees (KiCad footprint pad transform).
+
+    KiCad's ``RotatePoint(pos, +orientation)`` on Y-down board coordinates is a
+    clockwise-on-screen rotation of the point about the origin, i.e. the opposite
+    sign to the textbook CCW form: x' = x·cos + y·sin, y' = −x·sin + y·cos.
+    """
     rad = math.radians(deg)
     c, s = math.cos(rad), math.sin(rad)
-    return (x * c - y * s, x * s + y * c)
+    return (x * c + y * s, -x * s + y * c)
 
 
 def transform_pad(local: Point, fp_at: Point, fp_rot: float) -> Point:
@@ -94,6 +99,61 @@ def point_to_polygon_edge_distance(p: Point, polygon: list[Point]) -> float:
     if n == 1:
         return distance(p, polygon[0])
     return min(point_segment_distance(p, polygon[i], polygon[(i + 1) % n]) for i in range(n))
+
+
+def segments_intersect(a1: Point, a2: Point, b1: Point, b2: Point) -> bool:
+    """True if segments a1→a2 and b1→b2 cross or touch (endpoints included)."""
+
+    def orient(p: Point, q: Point, r: Point) -> float:
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    def on_seg(p: Point, q: Point, r: Point) -> bool:  # r collinear with p→q, between them?
+        return min(p[0], q[0]) <= r[0] <= max(p[0], q[0]) and min(p[1], q[1]) <= r[1] <= max(
+            p[1], q[1]
+        )
+
+    d1, d2 = orient(a1, a2, b1), orient(a1, a2, b2)
+    d3, d4 = orient(b1, b2, a1), orient(b1, b2, a2)
+    if (d1 > 0) != (d2 > 0) and (d3 > 0) != (d4 > 0):
+        return True
+    return bool(
+        (d1 == 0 and on_seg(a1, a2, b1))
+        or (d2 == 0 and on_seg(a1, a2, b2))
+        or (d3 == 0 and on_seg(b1, b2, a1))
+        or (d4 == 0 and on_seg(b1, b2, a2))
+    )
+
+
+def segment_segment_distance(a1: Point, a2: Point, b1: Point, b2: Point) -> float:
+    """Shortest distance between two segments (0 if they intersect)."""
+    if segments_intersect(a1, a2, b1, b2):
+        return 0.0
+    return min(
+        point_segment_distance(a1, b1, b2),
+        point_segment_distance(a2, b1, b2),
+        point_segment_distance(b1, a1, a2),
+        point_segment_distance(b2, a1, a2),
+    )
+
+
+def polygons_within(a: list[Point], b: list[Point], tol: float) -> bool:
+    """True if polygons ``a`` and ``b`` overlap, nest, or come within ``tol`` mm.
+
+    Used to union same-net pours into one electrically-continuous island (G1):
+    two pours that share an edge or sit within the seam tolerance are one plane.
+    """
+    if len(a) < 3 or len(b) < 3:
+        return False
+    if point_in_polygon(a[0], b) or point_in_polygon(b[0], a):
+        return True
+    na, nb = len(a), len(b)
+    for i in range(na):
+        a1, a2 = a[i], a[(i + 1) % na]
+        for j in range(nb):
+            b1, b2 = b[j], b[(j + 1) % nb]
+            if segment_segment_distance(a1, a2, b1, b2) <= tol:
+                return True
+    return False
 
 
 def segment_parallel_proximity(

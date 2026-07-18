@@ -49,7 +49,13 @@ class DecouplingCapPerIC(Rule):
 
         findings: list[Finding] = []
         for ic in ics:
-            nearest = min((geo.distance(ic.at, c.at) for c in caps), default=None)
+            # Measure pin-to-cap, not centroid-to-cap: on a large package the power
+            # pins (and their caps) sit near the edge, several mm off the centroid.
+            ic_points = [p.at for p in ic.pads] or [ic.at]
+            nearest = min(
+                (geo.distance(ip, c.at) for c in caps for ip in ic_points),
+                default=None,
+            )
             if nearest is None or nearest > _NEAR_MM:
                 where = (
                     "no 100 nF cap on the board"

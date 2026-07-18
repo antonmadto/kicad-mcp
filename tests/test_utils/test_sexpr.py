@@ -27,3 +27,15 @@ def test_first_value_default():
     node = ["thing", ["a", 1]]
     assert sx.first_value(node, "a") == 1
     assert sx.first_value(node, "missing", default="fallback") == "fallback"
+
+
+def test_sample_arc_public_alias():
+    # Public alias wraps _sample_arc; a quarter circle (r=10) samples along its
+    # true sweep, so the polyline length ≈ (pi/2)*10 = 15.708 mm, not the chord.
+    import math
+
+    pts = sx.sample_arc((10, 0), (7.071068, 7.071068), (0, 10))
+    assert pts is not None
+    assert math.isclose(pts[0][0], 10, abs_tol=1e-6) and math.isclose(pts[-1][1], 10, abs_tol=1e-6)
+    length = sum(math.dist(a, b) for a, b in zip(pts, pts[1:], strict=False))
+    assert abs(length - 15.708) < 0.05

@@ -132,12 +132,15 @@ def test_i2c_with_pullups_ok():
 # --- USB + mixed-signal ------------------------------------------------------
 
 
-def test_usb_dplus_without_pullup_flagged():
+def test_usb_dplus_without_pullup_is_warning():
+    # E→W: modern STM32s drive an internal DP pull-up, so a correct design has no
+    # external R and the netlist cannot distinguish it (mirrors NRST/VSSA).
     sch = Schematic(
         components=[SchematicComponent("J1", "USB")],
         nets=[_net("/USB_D+", [("J1", "3")])],
     )
-    assert "PHIL-USB-2" in _ids(sch)
+    findings = [f for f in run_rules(_model(sch)) if f.rule_id == "PHIL-USB-2"]
+    assert findings and findings[0].severity.value == "warning"
 
 
 def test_vssa_not_tied_flagged():

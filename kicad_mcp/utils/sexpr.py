@@ -142,6 +142,13 @@ def edge_extents(root: Any) -> dict | None:
     }
 
 
+def sample_arc(
+    start: tuple[float, float], mid: tuple[float, float], end: tuple[float, float], n: int = 16
+) -> list[tuple[float, float]] | None:
+    """Public alias for :func:`_sample_arc` (3-point circumcircle arc sampler)."""
+    return _sample_arc(start, mid, end, n)
+
+
 def _sample_arc(
     start: tuple[float, float], mid: tuple[float, float], end: tuple[float, float], n: int = 16
 ) -> list[tuple[float, float]] | None:

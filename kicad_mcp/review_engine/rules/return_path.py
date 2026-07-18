@@ -14,6 +14,9 @@ Robustness choices (anti-false-positive, in order of importance):
 - ALL copper zones on the reference layer count as reference copper (not only
   name-classified ground/power): any plane copper under the trace carries the
   return; net-name misclassification must not silently disable the check.
+- Keepout/rule-area zones (copperpour not_allowed) are voids, not copper: a sample
+  inside a keepout reads as uncovered even when a pour outline spans it — that is
+  exactly the EMI moat this rule is meant to catch.
 """
 
 from __future__ import annotations
@@ -69,12 +72,15 @@ class TraceCrossesReferenceGap(Rule):
             if ref is None:
                 continue
             # All copper pours on the plane layer are reference copper (see
-            # module docstring for why this is not filtered by net kind).
-            ref_zones = [z for z in model.zones_on(ref.name) if len(z.polygon) >= 3]
-            if not ref_zones:
+            # module docstring for why this is not filtered by net kind). Keepout
+            # rule-areas carve the copper, so they are voids, not reference copper.
+            on_ref = [z for z in model.zones_on(ref.name) if len(z.polygon) >= 3]
+            ref_pours = [z for z in on_ref if not z.keepout]
+            ref_voids = [z for z in on_ref if z.keepout]
+            if not ref_pours:
                 continue
 
-            crossing = self._first_gap(track, ref_zones, extents)
+            crossing = self._first_gap(track, ref_pours, ref_voids, extents)
             if crossing is not None:
                 net = model.nets.get(track.net_code)
                 findings.append(
@@ -91,23 +97,28 @@ class TraceCrossesReferenceGap(Rule):
                 )
         return findings
 
-    def _covered(self, sample: geo.Point, ref_zones) -> bool:
-        for z in ref_zones:
+    def _covered(self, sample: geo.Point, ref_pours, ref_voids) -> bool:
+        # A keepout void carved into the plane is not copper — the return has no
+        # path here even if a pour outline still spans it.
+        for z in ref_voids:
+            if geo.point_in_polygon(sample, z.polygon):
+                return False
+        for z in ref_pours:
             if geo.point_in_polygon(sample, z.polygon):
                 return True
         # Boundary tolerance: abutting-zone seams and pullback regions.
-        for z in ref_zones:
+        for z in ref_pours:
             if geo.point_to_polygon_edge_distance(sample, z.polygon) < _ZONE_EDGE_TOL_MM:
                 return True
         return False
 
-    def _first_gap(self, track, ref_zones, extents):
+    def _first_gap(self, track, ref_pours, ref_voids, extents):
         run: list[geo.Point] = []
         for sample in geo.sample_segment(track.start, track.end, _SAMPLE_STEP_MM):
             if extents and not _interior(sample, extents, _EDGE_MARGIN_MM):
                 run = []
                 continue
-            if self._covered(sample, ref_zones):
+            if self._covered(sample, ref_pours, ref_voids):
                 run = []
                 continue
             run.append(sample)
