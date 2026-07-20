@@ -8,6 +8,7 @@ rule reasons over the same normalized view.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -287,8 +288,16 @@ class DesignModel:
         outer = layer in ("F.Cu", "B.Cu")
         return 150.0 * (1.093 if outer else 1.0)
 
-    def prop_delay_ps_per_mm(self, layer: str) -> float:
-        """Inverse of velocity: ≈6.7 ps/mm stripline, ≈6.1 ps/mm microstrip."""
+    def prop_delay_ps_per_mm(self, layer: str, eps_eff: float | None = None) -> float:
+        """Inverse of velocity: ≈6.7 ps/mm stripline, ≈6.1 ps/mm microstrip.
+
+        With an explicit ``eps_eff`` (from the impedance model) the delay is exact
+        for that effective permittivity, not the layer's nominal velocity.
+        """
+        if eps_eff is not None:
+            # 3.335640951981521 = 1000/299.792458 (see impedance._PS_PER_MM_VACUUM); inlined to
+            # keep model.py free of an impedance import (impedance.py imports model.py).
+            return (1000.0 / 299.792458) * math.sqrt(max(eps_eff, 1.0))
         return 1000.0 / self.signal_velocity_mm_per_ns(layer)
 
 

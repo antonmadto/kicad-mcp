@@ -42,8 +42,14 @@ CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
         ),
     ),
     "review": (
-        "Hartley/Phil design-review engine",
-        ("review_design", "review_topic", "set_design_context"),
+        "Hartley/Phil design-review engine + impedance analysis",
+        (
+            "review_design",
+            "review_topic",
+            "set_design_context",
+            "analyze_impedance",
+            "calculate_impedance",
+        ),
     ),
     "board_edit": (
         "Live footprint/zone editing via IPC",

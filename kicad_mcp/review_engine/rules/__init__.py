@@ -18,6 +18,9 @@ _MODULES = (
     "smps",
     "subcircuits",
     "connectors",
+    # Imported last: impedance rule pulls in review_engine.impedance, which itself
+    # imports rules.transmission/crosstalk — those must already be registered.
+    "impedance",
 )
 
 for _name in _MODULES:
