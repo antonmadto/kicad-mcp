@@ -59,8 +59,8 @@ CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
         ),
     ),
     "routing": (
-        "Live trace/via/diff-pair routing via IPC",
-        ("route_trace", "add_via", "route_differential_pair"),
+        "Live trace/via/diff-pair routing + rip-up via IPC",
+        ("route_trace", "add_via", "route_differential_pair", "rip_up_nets", "rip_up_footprint"),
     ),
     "schematic_edit": (
         "Experimental schematic writes",

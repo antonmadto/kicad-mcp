@@ -50,6 +50,14 @@ def route_differential_pair_impl(
     return _ipc(ctx).route_differential_pair(_pts(points_mm), width_mm, gap_mm, layer, net_p, net_n)
 
 
+def rip_up_nets_impl(ctx: AppContext, nets: list) -> dict:
+    return _ipc(ctx).rip_up_nets([str(n) for n in nets])
+
+
+def rip_up_footprint_impl(ctx: AppContext, reference: str, include_shared: bool = False) -> dict:
+    return _ipc(ctx).rip_up_footprint(reference, include_shared)
+
+
 def register(mcp: FastMCP, ctx: AppContext) -> None:
     @mcp.tool()
     def route_trace(points_mm: list, width_mm: float, layer: str, net: str | None = None) -> dict:
@@ -80,3 +88,18 @@ def register(mcp: FastMCP, ctx: AppContext) -> None:
         """Route a differential pair: P and N run parallel to the centerline
         waypoints, offset by (width+gap)/2 each side. Single undo step."""
         return route_differential_pair_impl(ctx, points_mm, width_mm, gap_mm, layer, net_p, net_n)
+
+    @mcp.tool()
+    def rip_up_nets(nets: list) -> dict:
+        """Delete every track segment and via on the given nets — a 'rip up' for
+        re-routing. Leaves pads and zones intact. One undo step. Call before
+        route_differential_pair/route_trace to clear old copper."""
+        return rip_up_nets_impl(ctx, nets)
+
+    @mcp.tool()
+    def rip_up_footprint(reference: str, include_shared: bool = False) -> dict:
+        """Rip up the tracks/vias on a footprint's local nets so the part can be
+        moved and re-routed. Nets shared across many footprints (GND, power) are
+        skipped unless include_shared=True, so a plane/pour is never torn up.
+        Leaves pads and zones intact. One undo step."""
+        return rip_up_footprint_impl(ctx, reference, include_shared)
