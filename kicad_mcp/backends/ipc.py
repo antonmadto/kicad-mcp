@@ -422,6 +422,99 @@ class IpcBackend(Backend):
             "nets": [net_p, net_n],
         }
 
+    # --- Rip up (delete routing) -----------------------------------------------------
+
+    def rip_up_nets(self, net_names: list[str]) -> dict:
+        """Delete every track segment and via on the given nets — a "rip up".
+
+        Only tracks/vias are removed; pads and zones are left intact. Runs as a
+        single commit (one GUI undo step); any error rolls the whole thing back.
+        Unknown net names raise ``BackendError`` listing them, before anything is
+        removed. Uses ``get_tracks()``/``get_vias()`` (KiCad 9-compatible), NOT
+        ``get_items_by_net`` (kipy 0.7 / KiCad 10.0.1+ only).
+        """
+        requested = list(dict.fromkeys(net_names))  # de-dup, keep order
+        if not requested:
+            raise BackendError("rip_up_nets needs at least one net name.")
+        removed_tracks = removed_vias = 0
+        with self.commit("kicad-mcp: rip up " + ", ".join(requested)) as board:
+            known = {n.name for n in board.get_nets()}
+            missing = [n for n in requested if n not in known]
+            if missing:
+                raise BackendError(
+                    "Net(s) not found on the open board: "
+                    + ", ".join(sorted(missing))
+                    + ". Use get_netclasses to see available net names."
+                )
+            targets = set(requested)
+            tracks = [t for t in board.get_tracks() if t.net.name in targets]
+            vias = [v for v in board.get_vias() if v.net.name in targets]
+            removed_tracks, removed_vias = len(tracks), len(vias)
+            victims = tracks + vias
+            if victims:  # avoid a no-op remove_items([]) round-trip
+                board.remove_items(victims)
+        return {
+            "nets": sorted(requested),
+            "removed_tracks": removed_tracks,
+            "removed_vias": removed_vias,
+        }
+
+    @staticmethod
+    def _net_fanout(board) -> dict[str, int]:
+        """net name → number of distinct footprints with a pad on that net.
+
+        Used to spot "shared" nets (GND, power, buses) so ``rip_up_footprint``
+        doesn't tear up a whole plane when it only meant to free one part.
+        """
+        fanout: dict[str, set[str]] = {}
+        for fp in board.get_footprints():
+            ref = fp.reference_field.text.value
+            for pad in fp.definition.pads:
+                name = getattr(getattr(pad, "net", None), "name", None)
+                if name:
+                    fanout.setdefault(name, set()).add(ref)
+        return {name: len(refs) for name, refs in fanout.items()}
+
+    def rip_up_footprint(self, reference: str, include_shared: bool = False) -> dict:
+        """Rip up the track/via copper on a footprint's local nets.
+
+        Frees a part so it can be moved and re-routed. The footprint's pad nets
+        are split into *local* signal nets (touching at most two footprints) and
+        *shared* nets (GND, power, buses — more than two footprints); by default
+        only the local nets are ripped up, so we never tear up a plane/pour or
+        another part's routing. Pass ``include_shared=True`` to rip up shared
+        nets too. Pads and zones are always left intact. Single undo step.
+
+        Scoping by net (not by physical connection) is deliberate: KiCad 9's IPC
+        has no ``get_connected_items`` (that's KiCad 10.0.1+, like
+        ``get_items_by_net``), and for a two-footprint net every segment on it is
+        exactly the routing to re-do — so removing the whole net is correct.
+        """
+        removed_tracks = removed_vias = 0
+        with self.commit(f"kicad-mcp: rip up around {reference}") as board:
+            fp = self._find_footprint(board, reference)
+            pad_nets = {
+                p.net.name
+                for p in fp.definition.pads
+                if getattr(getattr(p, "net", None), "name", None)
+            }
+            fanout = self._net_fanout(board)
+            shared = set() if include_shared else {n for n in pad_nets if fanout.get(n, 0) > 2}
+            local = pad_nets - shared
+            tracks = [t for t in board.get_tracks() if t.net.name in local]
+            vias = [v for v in board.get_vias() if v.net.name in local]
+            removed_tracks, removed_vias = len(tracks), len(vias)
+            victims = tracks + vias
+            if victims:
+                board.remove_items(victims)
+        return {
+            "reference": reference,
+            "nets": sorted(local),
+            "skipped_shared_nets": sorted(shared),
+            "removed_tracks": removed_tracks,
+            "removed_vias": removed_vias,
+        }
+
     # --- Zones ---------------------------------------------------------------------
 
     def add_zone(

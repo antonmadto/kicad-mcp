@@ -15,7 +15,8 @@ nags about 90° corners or "shield" moats.
 > **23-rule review engine** across 10 families (with anti-myth guards), **live
 > board editing via IPC** (verified against KiCad 9.0.8), experimental schematic
 > writes, symbol/footprint/JLCPCB search, an async task queue, a tool router, and
-> review history. 45 tools + 4 router tools, 4 prompts, 173 tests. See
+> review history, and rip-up/re-routing. 45 tools + 4 router tools, 4 prompts,
+> 191 tests. See
 > [`docs/architecture.md`](docs/architecture.md), [`PLAN.md`](PLAN.md) §8, and
 > [`CLAUDE.md`](CLAUDE.md).
 

@@ -4,6 +4,20 @@ All notable changes to `kicad-mcp` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Rip-up / delete routing** (IPC) — `rip_up_nets(nets)` deletes every track
+  segment and via on the given nets (pads and zones left intact) as a single
+  undo step, so a net can be cleared and re-routed; unknown net names are
+  rejected up front and the commit rolls back on any error. `rip_up_footprint`
+  (reference) rips up the tracks/vias on a footprint's *local* nets so a part
+  can be moved and re-routed, skipping nets shared across many footprints
+  (GND/power) by default so a plane/pour is never torn up (`include_shared=True`
+  to override). Both use KiCad-9-compatible `get_tracks()`/`get_vias()` — not
+  the KiCad-10-only `get_items_by_net`/`get_connected_items`. 49 tools total.
+
 ## [0.1.0] — 2026-07-04
 
 First public release. Implements PLAN.md phases 0–6.

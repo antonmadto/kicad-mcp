@@ -27,7 +27,9 @@ genuinely useful on *their real board* — not just on the synthetic test fixtur
 
 ## 2. What's done (all of PLAN.md phases 0–6)
 
-- **47 tools + 4 router tools, 4 prompts, 23 review rules across 10 families.**
+- **49 tools + 4 router tools, 4 prompts, 23 review rules across 10 families.**
+  (49 includes the rip-up pair `rip_up_nets` / `rip_up_footprint` — delete
+  tracks/vias on a net or around a part so re-routing and part relocation work.)
 - **179 tests pass, ruff-clean, CI green** on Linux/macOS/Windows × Python
   3.10–3.13. Live IPC editing **verified against real KiCad 9.0.8** (moved/rotated
   parts, routed traces + diff pairs, added vias/zones, duplicated a footprint,
