@@ -135,9 +135,7 @@ class _FakeFootprint:
     """Just the shape rip_up_footprint reads: a ref field and pads with nets."""
 
     def __init__(self, reference: str, pad_nets: list[str]):
-        self.reference_field = type(
-            "F", (), {"text": type("T", (), {"value": reference})()}
-        )()
+        self.reference_field = type("F", (), {"text": type("T", (), {"value": reference})()})()
         pads = []
         for name in pad_nets:
             p = bt.Pad()
